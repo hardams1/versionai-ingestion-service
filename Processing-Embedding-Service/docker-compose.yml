@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  processing:
+    build: .
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    depends_on:
+      localstack:
+        condition: service_healthy
+    volumes:
+      - vector-data:/app/vector_store
+      - state-data:/app/state
+    networks:
+      - versionai
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs
+      - DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - versionai
+
+volumes:
+  vector-data:
+  state-data:
+  localstack-data:
+
+networks:
+  versionai:
+    driver: bridge
