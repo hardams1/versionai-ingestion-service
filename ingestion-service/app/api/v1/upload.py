@@ -20,26 +20,22 @@ from app.services.metadata import MetadataService
 from app.services.queue import SQSPublisher
 from app.services.storage import BaseStorageService
 from app.services.validation import FileValidator
+from app.utils.exceptions import QueuePublishError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/upload", tags=["upload"], dependencies=[Depends(verify_api_key)])
 
 
-@router.post(
-    "/",
-    response_model=UploadResponse,
-    status_code=201,
-    summary="Upload a single file for ingestion",
-)
-async def upload_file(
-    file: UploadFile = File(..., description="The file to upload"),
-    settings: Settings = Depends(get_settings),
-    validator: FileValidator = Depends(get_file_validator),
-    storage: BaseStorageService = Depends(get_storage_service),
-    queue: SQSPublisher = Depends(get_queue_publisher),
-    meta_svc: MetadataService = Depends(get_metadata_service),
+async def _ingest_single_file(
+    file: UploadFile,
+    settings: Settings,
+    validator: FileValidator,
+    storage: BaseStorageService,
+    queue: SQSPublisher,
+    meta_svc: MetadataService,
 ) -> UploadResponse:
+    """Validate, store, and queue a single file with rollback on queue failure."""
     ingestion_id = str(uuid.uuid4())
     filename = file.filename or "unknown"
 
@@ -63,7 +59,16 @@ async def upload_file(
         pipelines=pipelines,
         metadata=metadata,
     )
-    await queue.publish(message)
+
+    try:
+        await queue.publish(message)
+    except QueuePublishError:
+        logger.error(
+            "Queue publish failed for ingestion_id=%s; rolling back stored file %s",
+            ingestion_id, s3_key,
+        )
+        await storage.delete(s3_key)
+        raise
 
     logger.info("Ingestion %s queued for file '%s'", ingestion_id, filename)
 
@@ -78,6 +83,23 @@ async def upload_file(
         pipelines=pipelines,
         created_at=datetime.now(timezone.utc),
     )
+
+
+@router.post(
+    "/",
+    response_model=UploadResponse,
+    status_code=201,
+    summary="Upload a single file for ingestion",
+)
+async def upload_file(
+    file: UploadFile = File(..., description="The file to upload"),
+    settings: Settings = Depends(get_settings),
+    validator: FileValidator = Depends(get_file_validator),
+    storage: BaseStorageService = Depends(get_storage_service),
+    queue: SQSPublisher = Depends(get_queue_publisher),
+    meta_svc: MetadataService = Depends(get_metadata_service),
+) -> UploadResponse:
+    return await _ingest_single_file(file, settings, validator, storage, queue, meta_svc)
 
 
 @router.post(
@@ -97,44 +119,8 @@ async def upload_batch(
     results: list[UploadResponse] = []
 
     for file in files:
-        ingestion_id = str(uuid.uuid4())
-        filename = file.filename or "unknown"
-
-        file_bytes = await file.read()
-        mime_type, category, checksum = validator.validate(filename, file_bytes)
-
-        s3_key = await storage.upload(file_bytes, filename, category, mime_type, checksum)
-
-        pipelines = meta_svc.resolve_pipelines(category)
-        metadata = meta_svc.build_metadata(filename, mime_type, category, len(file_bytes), checksum)
-
-        message = QueueMessage(
-            ingestion_id=ingestion_id,
-            filename=filename,
-            s3_bucket=settings.s3_bucket_name,
-            s3_key=s3_key,
-            file_category=category,
-            mime_type=mime_type,
-            size_bytes=len(file_bytes),
-            checksum_sha256=checksum,
-            pipelines=pipelines,
-            metadata=metadata,
-        )
-        await queue.publish(message)
-
-        results.append(
-            UploadResponse(
-                ingestion_id=ingestion_id,
-                filename=filename,
-                file_category=category,
-                size_bytes=len(file_bytes),
-                mime_type=mime_type,
-                s3_key=s3_key,
-                status=IngestionStatus.QUEUED,
-                pipelines=pipelines,
-                created_at=datetime.now(timezone.utc),
-            )
-        )
+        result = await _ingest_single_file(file, settings, validator, storage, queue, meta_svc)
+        results.append(result)
 
     logger.info("Batch upload complete: %d files queued", len(results))
     return UploadBatchResponse(files=results, total=len(results))

@@ -21,6 +21,9 @@ class BaseStorageService(ABC):
     ) -> str: ...
 
     @abstractmethod
+    async def delete(self, key: str) -> None: ...
+
+    @abstractmethod
     async def ensure_bucket_exists(self) -> None: ...
 
     @staticmethod
@@ -53,6 +56,14 @@ class LocalStorageService(BaseStorageService):
 
         logger.info("Stored locally: %s (%d bytes)", dest, len(file_bytes))
         return key
+
+    async def delete(self, key: str) -> None:
+        dest = self._root / key
+        try:
+            dest.unlink(missing_ok=True)
+            logger.info("Deleted local file: %s", dest)
+        except Exception:
+            logger.exception("Failed to delete local file: %s", dest)
 
     async def ensure_bucket_exists(self) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
@@ -101,6 +112,17 @@ class S3StorageService(BaseStorageService):
 
         logger.info("Upload complete: s3://%s/%s", bucket, s3_key)
         return s3_key
+
+    async def delete(self, key: str) -> None:
+        bucket = self._settings.s3_bucket_name
+        try:
+            async with self._session.client(
+                "s3", endpoint_url=self._settings.s3_endpoint_url
+            ) as s3:
+                await s3.delete_object(Bucket=bucket, Key=key)
+            logger.info("Deleted s3://%s/%s", bucket, key)
+        except Exception:
+            logger.exception("Failed to delete s3://%s/%s", bucket, key)
 
     async def ensure_bucket_exists(self) -> None:
         bucket = self._settings.s3_bucket_name
