@@ -23,7 +23,7 @@ async def test_root(client: AsyncClient) -> None:
 
 
 @pytest.mark.anyio
-@patch("app.services.storage.S3StorageService.upload", new_callable=AsyncMock, return_value="uploads/video/2025/01/01/abc123_test.mp4")
+@patch("app.services.storage.LocalStorageService.upload", new_callable=AsyncMock, return_value="uploads/video/2025/01/01/abc123_test.mp4")
 @patch("app.services.queue.SQSPublisher.publish", new_callable=AsyncMock, return_value="msg-123")
 async def test_upload_video(mock_publish: AsyncMock, mock_upload: AsyncMock, client: AsyncClient) -> None:
     mp4_header = bytes.fromhex(
