@@ -40,14 +40,14 @@ class FAISSVectorStore(BaseVectorStore):
 
     def __init__(self, settings: Settings) -> None:
         self._index_dir = Path(settings.faiss_index_dir)
-        self._dimensions = settings.openai_embedding_dimensions
+        self._dimensions: int | None = None
         self._index = None
         self._metadata: list[dict] = []
         self._id_map: dict[str, list[int]] = {}
 
     async def initialize(self) -> None:
         try:
-            import faiss
+            import faiss  # noqa: F401
         except ImportError as exc:
             raise VectorStoreError("faiss-cpu is required for FAISS vector store") from exc
 
@@ -59,23 +59,31 @@ class FAISSVectorStore(BaseVectorStore):
         if index_path.exists() and meta_path.exists():
             logger.info("Loading existing FAISS index from %s", self._index_dir)
             self._index = faiss.read_index(str(index_path))
+            self._dimensions = self._index.d
             with open(meta_path) as f:
                 data = json.load(f)
             self._metadata = data.get("metadata", [])
             self._id_map = data.get("id_map", {})
         else:
-            logger.info("Creating new FAISS index (dim=%d)", self._dimensions)
-            self._index = faiss.IndexFlatIP(self._dimensions)
-            self._metadata = []
-            self._id_map = {}
+            logger.info("FAISS index will be created on first store (auto-detecting dimensions)")
+
+    def _ensure_index(self, dim: int) -> None:
+        if self._index is not None:
+            return
+        import faiss
+        self._dimensions = dim
+        logger.info("Creating new FAISS index (dim=%d)", dim)
+        self._index = faiss.IndexFlatIP(dim)
+        self._metadata = []
+        self._id_map = {}
 
     async def store(self, ingestion_id: str, embeddings: list[EmbeddingResult]) -> int:
         import numpy as np
 
         if not embeddings:
             return 0
-        if self._index is None:
-            raise VectorStoreError("FAISS index not initialized")
+
+        self._ensure_index(len(embeddings[0].vector))
 
         vectors = np.array([e.vector for e in embeddings], dtype=np.float32)
 

@@ -52,7 +52,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await vector_store.initialize()
 
     consumer = get_sqs_consumer()
-    orchestrator = get_orchestrator()
+    try:
+        orchestrator = get_orchestrator()
+    except Exception:
+        logger.exception(
+            "Failed to build orchestrator — worker will NOT start. "
+            "Check EMBEDDING_PROVIDER / OPENAI_API_KEY configuration."
+        )
+        yield
+        await state_store.close()
+        return
+
     _worker = Worker(
         consumer=consumer,
         orchestrator=orchestrator,
@@ -125,6 +135,33 @@ async def root() -> dict:
         "service": settings.app_name,
         "version": settings.app_version,
         "docs": "/docs",
+    }
+
+
+@app.post("/api/v1/process", tags=["processing"], status_code=202)
+async def trigger_processing(payload: dict) -> dict:
+    """
+    Accept a QueueMessage directly via HTTP (used when SQS is unavailable).
+    This lets the ingestion service push messages without infrastructure.
+    """
+    from app.models.schemas import QueueMessage
+
+    try:
+        message = QueueMessage(**payload)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid message: {exc}")
+
+    if not _worker or not _worker.is_running:
+        raise HTTPException(status_code=503, detail="Worker not running")
+
+    orchestrator = get_orchestrator()
+    record = await orchestrator.process(message)
+    return {
+        "ingestion_id": record.ingestion_id,
+        "status": record.status.value,
+        "chunks_count": record.chunks_count,
+        "embeddings_count": record.embeddings_count,
+        "error_message": record.error_message,
     }
 
 

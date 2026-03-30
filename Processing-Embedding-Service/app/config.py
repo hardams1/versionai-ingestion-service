@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     pinecone_index_name: str = "versionai"
     pinecone_namespace: str = "default"
 
+    # --- Local storage (reads files from ingestion service's local dir when S3 unavailable) ---
+    local_storage_path: str | None = None
+
     # --- Idempotency / state ---
     state_db_path: str = "./state/processing.db"
 

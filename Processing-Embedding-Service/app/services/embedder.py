@@ -31,13 +31,18 @@ class OpenAIEmbedder(BaseEmbedder):
     """Generates embeddings via OpenAI's embedding API."""
 
     def __init__(self, settings: Settings) -> None:
-        if not settings.openai_api_key:
-            raise EmbeddingError("OPENAI_API_KEY is required for OpenAI embeddings")
-
-        from openai import AsyncOpenAI
-        self._client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self._api_key = settings.openai_api_key
+        self._client = None
         self._model = settings.openai_embedding_model
         self._dimensions = settings.openai_embedding_dimensions
+
+    def _get_client(self):
+        if self._client is None:
+            if not self._api_key:
+                raise EmbeddingError("OPENAI_API_KEY is required for OpenAI embeddings")
+            from openai import AsyncOpenAI
+            self._client = AsyncOpenAI(api_key=self._api_key)
+        return self._client
 
     @property
     def dimensions(self) -> int:
@@ -56,7 +61,8 @@ class OpenAIEmbedder(BaseEmbedder):
             texts = [c.text for c in batch]
 
             try:
-                response = await self._client.embeddings.create(
+                client = self._get_client()
+                response = await client.embeddings.create(
                     model=self._model,
                     input=texts,
                     dimensions=self._dimensions,
@@ -105,7 +111,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         logger.info("Generating local embeddings for %d chunks (model=%s)", len(chunks), self._model_name)
 
         texts = [c.text for c in chunks]
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         vectors = await loop.run_in_executor(None, lambda: self._model.encode(texts).tolist())
 
         results: list[EmbeddingResult] = []

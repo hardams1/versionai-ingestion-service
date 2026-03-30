@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class SQSPublisher:
-    """Publishes processing messages to an AWS SQS queue."""
+    """Publishes processing messages to SQS, or falls back to HTTP webhook."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -24,20 +24,20 @@ class SQSPublisher:
         )
 
     async def publish(self, message: QueueMessage) -> str:
-        """
-        Publish a QueueMessage to SQS.
-
-        Returns the SQS MessageId on success.
-        """
         queue_url = self._settings.sqs_queue_url
-        if not queue_url:
-            logger.warning("SQS queue URL not configured – skipping publish")
-            return "no-op"
+        if queue_url:
+            return await self._publish_sqs(message, queue_url)
 
+        webhook_url = self._settings.processing_webhook_url
+        if webhook_url:
+            return await self._publish_webhook(message, webhook_url)
+
+        logger.warning("Neither SQS nor webhook configured – skipping publish")
+        return "no-op"
+
+    async def _publish_sqs(self, message: QueueMessage, queue_url: str) -> str:
         body = json.dumps(message.model_dump(), default=str)
-        logger.info(
-            "Publishing message for ingestion_id=%s to SQS", message.ingestion_id
-        )
+        logger.info("Publishing ingestion_id=%s to SQS", message.ingestion_id)
 
         try:
             async with self._session.client(
@@ -65,4 +65,26 @@ class SQSPublisher:
             logger.exception("Failed to publish to SQS")
             raise QueuePublishError(
                 f"Failed to publish message for '{message.ingestion_id}': {exc}"
+            ) from exc
+
+    async def _publish_webhook(self, message: QueueMessage, webhook_url: str) -> str:
+        import httpx
+
+        body = json.loads(json.dumps(message.model_dump(), default=str))
+        logger.info("POSTing ingestion_id=%s to webhook %s", message.ingestion_id, webhook_url)
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(webhook_url, json=body)
+                resp.raise_for_status()
+                data = resp.json()
+                logger.info(
+                    "Webhook accepted ingestion_id=%s (status=%s)",
+                    message.ingestion_id, data.get("status", "unknown"),
+                )
+                return f"webhook-{message.ingestion_id}"
+        except Exception as exc:
+            logger.exception("Webhook POST failed for ingestion_id=%s", message.ingestion_id)
+            raise QueuePublishError(
+                f"Webhook failed for '{message.ingestion_id}': {exc}"
             ) from exc

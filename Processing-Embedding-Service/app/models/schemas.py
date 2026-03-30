@@ -61,6 +61,11 @@ class ProcessingRecord(BaseModel):
     duration_seconds: float | None = None
 
 
+class ErrorDetail(BaseModel):
+    detail: str
+    code: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str

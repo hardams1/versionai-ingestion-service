@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     sqs_queue_url: str | None = None
     sqs_endpoint_url: str | None = None  # for LocalStack
 
+    # --- Processing service webhook (used when SQS is unavailable) ---
+    processing_webhook_url: str | None = None
+
     # --- Local storage (fallback when S3 is unavailable) ---
     use_local_storage: bool = True
     local_storage_path: str = "./storage"

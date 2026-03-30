@@ -48,9 +48,12 @@ class Worker:
         self._consumer._running = True
         logger.info("Worker starting (concurrency=%d)", self._concurrency)
 
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+        try:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+        except (NotImplementedError, RuntimeError):
+            logger.debug("Signal handlers not supported in this context")
 
         while self._running:
             try:
