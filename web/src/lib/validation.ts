@@ -2,29 +2,23 @@ import { z } from "zod";
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 
-const ACCEPTED_MIME_TYPES = [
-  "video/mp4",
-  "video/quicktime",
-  "video/x-msvideo",
-  "video/webm",
-  "video/x-matroska",
-  "audio/mpeg",
-  "audio/wav",
-  "audio/ogg",
-  "audio/flac",
-  "audio/x-wav",
-  "audio/mp4",
-  "text/plain",
-  "text/csv",
-  "text/markdown",
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-] as const;
+const ACCEPTED_EXTENSIONS = [
+  ".mp4", ".mov", ".avi", ".webm", ".mkv",
+  ".mp3", ".wav", ".ogg", ".flac", ".m4a",
+  ".txt", ".csv", ".md",
+  ".pdf",
+  ".docx",
+];
 
 const DANGEROUS_EXTENSIONS = [
   ".exe", ".bat", ".cmd", ".sh", ".ps1", ".msi",
   ".dll", ".scr", ".com", ".vbs", ".js", ".jar",
 ];
+
+function getExtension(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i >= 0 ? name.slice(i).toLowerCase() : "";
+}
 
 export const fileSchema = z
   .instanceof(File)
@@ -38,7 +32,7 @@ export const fileSchema = z
     "This file type is not allowed for security reasons"
   )
   .refine(
-    (file) => ACCEPTED_MIME_TYPES.includes(file.type as typeof ACCEPTED_MIME_TYPES[number]),
+    (file) => ACCEPTED_EXTENSIONS.includes(getExtension(file.name)),
     "This file format is not supported"
   );
 

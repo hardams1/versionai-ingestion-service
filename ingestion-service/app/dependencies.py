@@ -8,7 +8,7 @@ from fastapi.security import APIKeyHeader
 from app.config import Settings, get_settings
 from app.services.metadata import MetadataService
 from app.services.queue import SQSPublisher
-from app.services.storage import S3StorageService
+from app.services.storage import BaseStorageService, LocalStorageService, S3StorageService
 from app.services.validation import FileValidator
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -31,8 +31,11 @@ def get_file_validator() -> FileValidator:
 
 
 @lru_cache
-def get_storage_service() -> S3StorageService:
-    return S3StorageService(get_settings())
+def get_storage_service() -> BaseStorageService:
+    settings = get_settings()
+    if settings.use_local_storage:
+        return LocalStorageService(settings)
+    return S3StorageService(settings)
 
 
 @lru_cache

@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     sqs_queue_url: str | None = None
     sqs_endpoint_url: str | None = None  # for LocalStack
 
+    # --- Local storage (fallback when S3 is unavailable) ---
+    use_local_storage: bool = True
+    local_storage_path: str = "./storage"
+
     # --- Security ---
     api_key: str | None = None  # optional API-key gating
     cors_origins: list[str] = ["*"]

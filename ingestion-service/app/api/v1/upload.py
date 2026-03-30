@@ -18,7 +18,7 @@ from app.models.enums import IngestionStatus
 from app.models.schemas import QueueMessage, UploadBatchResponse, UploadResponse
 from app.services.metadata import MetadataService
 from app.services.queue import SQSPublisher
-from app.services.storage import S3StorageService
+from app.services.storage import BaseStorageService
 from app.services.validation import FileValidator
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def upload_file(
     file: UploadFile = File(..., description="The file to upload"),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
-    storage: S3StorageService = Depends(get_storage_service),
+    storage: BaseStorageService = Depends(get_storage_service),
     queue: SQSPublisher = Depends(get_queue_publisher),
     meta_svc: MetadataService = Depends(get_metadata_service),
 ) -> UploadResponse:
@@ -90,7 +90,7 @@ async def upload_batch(
     files: list[UploadFile] = File(..., description="Files to upload"),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
-    storage: S3StorageService = Depends(get_storage_service),
+    storage: BaseStorageService = Depends(get_storage_service),
     queue: SQSPublisher = Depends(get_queue_publisher),
     meta_svc: MetadataService = Depends(get_metadata_service),
 ) -> UploadBatchResponse:

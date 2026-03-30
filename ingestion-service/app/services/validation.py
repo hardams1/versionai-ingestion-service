@@ -20,6 +20,24 @@ DANGEROUS_EXTENSIONS = {
     ".scr", ".com", ".vbs", ".js", ".jar", ".py", ".rb",
 }
 
+EXTENSION_TO_MIME: dict[str, str] = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".md": "text/markdown",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
 
 class FileValidator:
     def __init__(self, settings: Settings) -> None:
@@ -42,9 +60,24 @@ class FileValidator:
                 f"File extension '{ext}' is not allowed for security reasons"
             )
 
-    def detect_mime_type(self, file_header: bytes) -> str:
-        """Detect MIME type from the file's magic bytes (first >=2048 bytes)."""
+    def detect_mime_type(self, file_header: bytes, filename: str) -> str:
+        """
+        Detect MIME type from magic bytes, falling back to extension mapping
+        when libmagic returns a generic type like application/octet-stream.
+        """
         mime = magic.from_buffer(file_header, mime=True)
+
+        generic_types = {"application/octet-stream", "application/x-empty", "inode/x-empty"}
+        if mime in generic_types:
+            ext = PurePosixPath(filename).suffix.lower()
+            ext_mime = EXTENSION_TO_MIME.get(ext)
+            if ext_mime:
+                logger.info(
+                    "Magic detected '%s' for '%s'; falling back to extension-based: '%s'",
+                    mime, filename, ext_mime,
+                )
+                return ext_mime
+
         return mime
 
     def validate_mime_type(self, mime_type: str, filename: str) -> FileCategory:
@@ -79,7 +112,7 @@ class FileValidator:
         self.validate_size(len(file_bytes), filename)
 
         header = file_bytes[:4096]
-        mime_type = self.detect_mime_type(header)
+        mime_type = self.detect_mime_type(header, filename)
         category = self.validate_mime_type(mime_type, filename)
         checksum = self.compute_sha256(file_bytes)
 
