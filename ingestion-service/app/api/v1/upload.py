@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, UploadFile, File
+
+from app.config import Settings, get_settings
+from app.dependencies import (
+    get_file_validator,
+    get_metadata_service,
+    get_queue_publisher,
+    get_storage_service,
+    verify_api_key,
+)
+from app.models.enums import IngestionStatus
+from app.models.schemas import QueueMessage, UploadBatchResponse, UploadResponse
+from app.services.metadata import MetadataService
+from app.services.queue import SQSPublisher
+from app.services.storage import S3StorageService
+from app.services.validation import FileValidator
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/upload", tags=["upload"], dependencies=[Depends(verify_api_key)])
+
+
+@router.post(
+    "/",
+    response_model=UploadResponse,
+    status_code=201,
+    summary="Upload a single file for ingestion",
+)
+async def upload_file(
+    file: UploadFile = File(..., description="The file to upload"),
+    settings: Settings = Depends(get_settings),
+    validator: FileValidator = Depends(get_file_validator),
+    storage: S3StorageService = Depends(get_storage_service),
+    queue: SQSPublisher = Depends(get_queue_publisher),
+    meta_svc: MetadataService = Depends(get_metadata_service),
+) -> UploadResponse:
+    ingestion_id = str(uuid.uuid4())
+    filename = file.filename or "unknown"
+
+    file_bytes = await file.read()
+    mime_type, category, checksum = validator.validate(filename, file_bytes)
+
+    s3_key = await storage.upload(file_bytes, filename, category, mime_type, checksum)
+
+    pipelines = meta_svc.resolve_pipelines(category)
+    metadata = meta_svc.build_metadata(filename, mime_type, category, len(file_bytes), checksum)
+
+    message = QueueMessage(
+        ingestion_id=ingestion_id,
+        filename=filename,
+        s3_bucket=settings.s3_bucket_name,
+        s3_key=s3_key,
+        file_category=category,
+        mime_type=mime_type,
+        size_bytes=len(file_bytes),
+        checksum_sha256=checksum,
+        pipelines=pipelines,
+        metadata=metadata,
+    )
+    await queue.publish(message)
+
+    logger.info("Ingestion %s queued for file '%s'", ingestion_id, filename)
+
+    return UploadResponse(
+        ingestion_id=ingestion_id,
+        filename=filename,
+        file_category=category,
+        size_bytes=len(file_bytes),
+        mime_type=mime_type,
+        s3_key=s3_key,
+        status=IngestionStatus.QUEUED,
+        pipelines=pipelines,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@router.post(
+    "/batch",
+    response_model=UploadBatchResponse,
+    status_code=201,
+    summary="Upload multiple files for ingestion",
+)
+async def upload_batch(
+    files: list[UploadFile] = File(..., description="Files to upload"),
+    settings: Settings = Depends(get_settings),
+    validator: FileValidator = Depends(get_file_validator),
+    storage: S3StorageService = Depends(get_storage_service),
+    queue: SQSPublisher = Depends(get_queue_publisher),
+    meta_svc: MetadataService = Depends(get_metadata_service),
+) -> UploadBatchResponse:
+    results: list[UploadResponse] = []
+
+    for file in files:
+        ingestion_id = str(uuid.uuid4())
+        filename = file.filename or "unknown"
+
+        file_bytes = await file.read()
+        mime_type, category, checksum = validator.validate(filename, file_bytes)
+
+        s3_key = await storage.upload(file_bytes, filename, category, mime_type, checksum)
+
+        pipelines = meta_svc.resolve_pipelines(category)
+        metadata = meta_svc.build_metadata(filename, mime_type, category, len(file_bytes), checksum)
+
+        message = QueueMessage(
+            ingestion_id=ingestion_id,
+            filename=filename,
+            s3_bucket=settings.s3_bucket_name,
+            s3_key=s3_key,
+            file_category=category,
+            mime_type=mime_type,
+            size_bytes=len(file_bytes),
+            checksum_sha256=checksum,
+            pipelines=pipelines,
+            metadata=metadata,
+        )
+        await queue.publish(message)
+
+        results.append(
+            UploadResponse(
+                ingestion_id=ingestion_id,
+                filename=filename,
+                file_category=category,
+                size_bytes=len(file_bytes),
+                mime_type=mime_type,
+                s3_key=s3_key,
+                status=IngestionStatus.QUEUED,
+                pipelines=pipelines,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+    logger.info("Batch upload complete: %d files queued", len(results))
+    return UploadBatchResponse(files=results, total=len(results))
