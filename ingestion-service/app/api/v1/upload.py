@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, Form, UploadFile, File
 
 from app.config import Settings, get_settings
 from app.dependencies import (
@@ -34,6 +34,7 @@ async def _ingest_single_file(
     storage: BaseStorageService,
     queue: SQSPublisher,
     meta_svc: MetadataService,
+    user_id: str | None = None,
 ) -> UploadResponse:
     """Validate, store, and queue a single file with rollback on queue failure."""
     ingestion_id = str(uuid.uuid4())
@@ -46,6 +47,8 @@ async def _ingest_single_file(
 
     pipelines = meta_svc.resolve_pipelines(category)
     metadata = meta_svc.build_metadata(filename, mime_type, category, len(file_bytes), checksum)
+    if user_id:
+        metadata["user_id"] = user_id
 
     message = QueueMessage(
         ingestion_id=ingestion_id,
@@ -93,13 +96,14 @@ async def _ingest_single_file(
 )
 async def upload_file(
     file: UploadFile = File(..., description="The file to upload"),
+    user_id: str | None = Form(default=None, description="Owner user ID for tenant isolation"),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
     storage: BaseStorageService = Depends(get_storage_service),
     queue: SQSPublisher = Depends(get_queue_publisher),
     meta_svc: MetadataService = Depends(get_metadata_service),
 ) -> UploadResponse:
-    return await _ingest_single_file(file, settings, validator, storage, queue, meta_svc)
+    return await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=user_id)
 
 
 @router.post(
@@ -110,6 +114,7 @@ async def upload_file(
 )
 async def upload_batch(
     files: list[UploadFile] = File(..., description="Files to upload"),
+    user_id: str | None = Form(default=None, description="Owner user ID for tenant isolation"),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
     storage: BaseStorageService = Depends(get_storage_service),
@@ -119,7 +124,7 @@ async def upload_batch(
     results: list[UploadResponse] = []
 
     for file in files:
-        result = await _ingest_single_file(file, settings, validator, storage, queue, meta_svc)
+        result = await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=user_id)
         results.append(result)
 
     logger.info("Batch upload complete: %d files queued", len(results))

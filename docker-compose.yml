@@ -1,0 +1,128 @@
+version: "3.9"
+
+# ==========================================================================
+# VersionAI — Unified Stack
+#
+#   Ingestion Service   :8000  (upload → S3 → SQS)
+#   Processing Service  :8001  (SQS → extract → embed → FAISS/Pinecone)
+#   AI Brain Service    :8002  (query → retrieve → LLM → respond)
+#   LocalStack          :4566  (S3 + SQS)
+#   Redis               :6379  (conversation memory)
+# ==========================================================================
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs
+      - DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - versionai
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - versionai
+
+  # ── Microservice #1: Ingestion ──────────────────────────────────────────
+
+  ingestion:
+    build: ./ingestion-service
+    ports:
+      - "8000:8000"
+    environment:
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - SQS_ENDPOINT_URL=http://localstack:4566
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/versionai-processing
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - USE_LOCAL_STORAGE=false
+      - PROCESSING_WEBHOOK_URL=http://processing:8001/api/v1/process
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - versionai
+
+  # ── Microservice #2: Processing & Embedding ─────────────────────────────
+
+  processing:
+    build: ./Processing-Embedding-Service
+    ports:
+      - "8001:8001"
+    environment:
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - SQS_ENDPOINT_URL=http://localstack:4566
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/versionai-processing
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+      - OPENAI_EMBEDDING_DIMENSIONS=1536
+      - VECTOR_STORE_PROVIDER=faiss
+      - FAISS_INDEX_DIR=/app/vector_store
+    depends_on:
+      localstack:
+        condition: service_healthy
+    volumes:
+      - vector-data:/app/vector_store
+      - state-data:/app/state
+    networks:
+      - versionai
+
+  # ── Microservice #3: AI Brain ───────────────────────────────────────────
+
+  brain:
+    build: ./AI-Brain-service
+    ports:
+      - "8002:8002"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+      - OPENAI_EMBEDDING_DIMENSIONS=1536
+      - VECTOR_STORE_PROVIDER=faiss
+      - FAISS_INDEX_DIR=/app/vector_store
+      - REDIS_URL=redis://redis:6379/0
+      - INGESTION_SERVICE_URL=http://ingestion:8000
+      - PROCESSING_SERVICE_URL=http://processing:8001
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - vector-data:/app/vector_store:ro
+    networks:
+      - versionai
+
+volumes:
+  localstack-data:
+  redis-data:
+  vector-data:
+  state-data:
+
+networks:
+  versionai:
+    driver: bridge

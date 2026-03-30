@@ -42,6 +42,7 @@ class FAISSRetriever(BaseRetriever):
         self._id_map: dict[str, list[int]] = {}
         self._lock = threading.Lock()
         self._last_ntotal = -1
+        self._strict_tenant = settings.retrieval_strict_tenant
 
     async def initialize(self) -> None:
         try:
@@ -134,6 +135,8 @@ class FAISSRetriever(BaseRetriever):
 
             chunk_user = meta.get("user_id")
             if chunk_user and chunk_user != user_id:
+                continue
+            if self._strict_tenant and not chunk_user:
                 continue
 
             results.append(SourceChunk(

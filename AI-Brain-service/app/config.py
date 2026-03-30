@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # --- Retrieval ---
     retrieval_top_k: int = Field(default=5, ge=1, le=20)
     retrieval_score_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    retrieval_strict_tenant: bool = Field(
+        default=False,
+        description="If True, only return chunks that explicitly have the requesting user_id in metadata",
+    )
 
     # --- Redis (conversation memory) ---
     redis_url: str = "redis://localhost:6379/0"
