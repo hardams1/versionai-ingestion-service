@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  brain:
+    build: .
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - INGESTION_SERVICE_URL=http://ingestion:8000
+      - PROCESSING_SERVICE_URL=http://processing:8001
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../Processing-Embedding-Service/vector_store:/app/vector_store:ro
+    networks:
+      - versionai
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - versionai
+
+volumes:
+  redis-data:
+
+networks:
+  versionai:
+    driver: bridge
