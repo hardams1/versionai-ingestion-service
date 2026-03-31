@@ -1,0 +1,39 @@
+version: "3.9"
+
+# ==========================================================================
+# VersionAI Voice Service — Local Development
+# ==========================================================================
+
+services:
+  voice:
+    build: .
+    ports:
+      - "8003:8003"
+    env_file: .env
+    environment:
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - VOICE_PROFILE_STORAGE=local
+    volumes:
+      - voice-profiles:/app/voice_profiles
+    networks:
+      - versionai
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - versionai
+
+volumes:
+  voice-profiles:
+  localstack-data:
+
+networks:
+  versionai:
+    driver: bridge

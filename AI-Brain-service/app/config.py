@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     # --- Sibling services (integration) ---
     ingestion_service_url: str | None = Field(default=None, description="e.g. http://localhost:8000")
     processing_service_url: str | None = Field(default=None, description="e.g. http://localhost:8001")
+    voice_service_url: str | None = Field(default=None, description="e.g. http://localhost:8003")
 
     # --- Security ---
     api_key: str | None = None

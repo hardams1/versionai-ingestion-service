@@ -22,12 +22,16 @@ class SiblingServiceClient:
     def __init__(self, settings: Settings) -> None:
         self._ingestion_url = settings.ingestion_service_url
         self._processing_url = settings.processing_service_url
+        self._voice_url = settings.voice_service_url
 
     async def check_ingestion(self) -> dict:
         return await self._check("ingestion", self._ingestion_url)
 
     async def check_processing(self) -> dict:
         return await self._check("processing", self._processing_url)
+
+    async def check_voice(self) -> dict:
+        return await self._check("voice", self._voice_url)
 
     @staticmethod
     async def _check(name: str, base_url: str | None) -> dict:

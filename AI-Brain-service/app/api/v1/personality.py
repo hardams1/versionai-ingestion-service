@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -55,7 +56,7 @@ async def get_personality(
     )
 
 
-@router.get("/user/{user_id}", response_model=list[PersonalityResponse])
+@router.get("/user/{user_id}", response_model=List[PersonalityResponse])
 async def list_user_personalities(
     user_id: str,
     store: PersonalityStore = Depends(get_personality_store),

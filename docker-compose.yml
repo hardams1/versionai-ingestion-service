@@ -6,6 +6,7 @@ version: "3.9"
 #   Ingestion Service   :8000  (upload → S3 → SQS)
 #   Processing Service  :8001  (SQS → extract → embed → FAISS/Pinecone)
 #   AI Brain Service    :8002  (query → retrieve → LLM → respond)
+#   Voice Service       :8003  (text → TTS → audio with cloned voices)
 #   LocalStack          :4566  (S3 + SQS)
 #   Redis               :6379  (conversation memory)
 # ==========================================================================
@@ -109,6 +110,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - INGESTION_SERVICE_URL=http://ingestion:8000
       - PROCESSING_SERVICE_URL=http://processing:8001
+      - VOICE_SERVICE_URL=http://voice:8003
     depends_on:
       redis:
         condition: service_healthy
@@ -117,11 +119,36 @@ services:
     networks:
       - versionai
 
+  # ── Microservice #4: Voice ─────────────────────────────────────────────
+
+  voice:
+    build: ./Voice-service
+    ports:
+      - "8003:8003"
+    environment:
+      - TTS_PROVIDER=${TTS_PROVIDER:-mock}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - VOICE_PROFILE_STORAGE=s3
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - S3_BUCKET_NAME=versionai-voices
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - BRAIN_SERVICE_URL=http://brain:8002
+    depends_on:
+      localstack:
+        condition: service_healthy
+    volumes:
+      - voice-profiles:/app/voice_profiles
+    networks:
+      - versionai
+
 volumes:
   localstack-data:
   redis-data:
   vector-data:
   state-data:
+  voice-profiles:
 
 networks:
   versionai:

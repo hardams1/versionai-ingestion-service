@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 
 
-class FileCategory(StrEnum):
+class FileCategory(str, Enum):
     VIDEO = "video"
     AUDIO = "audio"
     TEXT = "text"
@@ -11,7 +11,7 @@ class FileCategory(StrEnum):
     DOCUMENT = "document"
 
 
-class IngestionStatus(StrEnum):
+class IngestionStatus(str, Enum):
     PENDING = "pending"
     VALIDATING = "validating"
     UPLOADING = "uploading"
@@ -21,7 +21,7 @@ class IngestionStatus(StrEnum):
     FAILED = "failed"
 
 
-class ProcessingPipeline(StrEnum):
+class ProcessingPipeline(str, Enum):
     """Downstream AI pipeline the file should be routed to."""
     TRANSCRIPTION = "transcription"    # Whisper
     FRAME_EXTRACTION = "frame_extraction"  # FFmpeg

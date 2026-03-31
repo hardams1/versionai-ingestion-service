@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import get_memory, verify_api_key
@@ -9,7 +11,7 @@ from app.services.memory import ConversationMemory
 router = APIRouter(prefix="/memory", tags=["memory"], dependencies=[Depends(verify_api_key)])
 
 
-@router.get("/{conversation_id}", response_model=list[ChatMessage])
+@router.get("/{conversation_id}", response_model=List[ChatMessage])
 async def get_conversation_history(
     conversation_id: str,
     memory: ConversationMemory = Depends(get_memory),

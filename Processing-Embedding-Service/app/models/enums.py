@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 
 
-class FileCategory(StrEnum):
+class FileCategory(str, Enum):
     VIDEO = "video"
     AUDIO = "audio"
     TEXT = "text"
@@ -11,14 +11,14 @@ class FileCategory(StrEnum):
     DOCUMENT = "document"
 
 
-class ProcessingPipeline(StrEnum):
+class ProcessingPipeline(str, Enum):
     TRANSCRIPTION = "transcription"
     FRAME_EXTRACTION = "frame_extraction"
     EMBEDDING = "embedding"
     OCR = "ocr"
 
 
-class ProcessingStatus(StrEnum):
+class ProcessingStatus(str, Enum):
     RECEIVED = "received"
     DOWNLOADING = "downloading"
     EXTRACTING_TEXT = "extracting_text"
@@ -31,7 +31,7 @@ class ProcessingStatus(StrEnum):
     SKIPPED = "skipped"
 
 
-class ProcessingStep(StrEnum):
+class ProcessingStep(str, Enum):
     """Steps from the simplified input format (image spec)."""
     TRANSCRIBE = "transcribe"
     PARSE = "parse"

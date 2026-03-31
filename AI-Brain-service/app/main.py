@@ -127,7 +127,7 @@ async def health() -> HealthResponse:
     # Sibling services check (non-blocking, best-effort)
     from app.services.integration import SiblingServiceClient
     sibling_client = SiblingServiceClient(settings)
-    for name, check in [("ingestion", sibling_client.check_ingestion), ("processing", sibling_client.check_processing)]:
+    for name, check in [("ingestion", sibling_client.check_ingestion), ("processing", sibling_client.check_processing), ("voice", sibling_client.check_voice)]:
         try:
             result = await check()
             deps[name] = DependencyHealth(
