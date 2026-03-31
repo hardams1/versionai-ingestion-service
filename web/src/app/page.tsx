@@ -1,68 +1,72 @@
-import { UploadPanel } from "@/components/upload/upload-panel";
-import { ServiceStatus } from "@/components/upload/service-status";
-import { Separator } from "@/components/ui/separator";
+import Link from "next/link";
+import { Upload, MessageSquare, Radio } from "lucide-react";
+import { NavHeader } from "@/components/layout/nav-header";
 
 export default function Home() {
   return (
     <div className="flex flex-1 flex-col">
-      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+      <NavHeader />
+
+      <main className="flex-1 flex items-center justify-center">
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <div className="mb-3 flex justify-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground font-bold text-2xl">
               V
             </div>
-            <div>
-              <h1 className="text-base font-semibold leading-tight">VersionAI</h1>
-              <p className="text-xs text-muted-foreground">Ingestion Portal</p>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            Welcome to VersionAI
+          </h1>
+          <p className="mt-3 text-lg text-muted-foreground max-w-xl mx-auto">
+            Upload your data, ask questions, and get real-time AI-powered
+            responses with generated audio and video.
+          </p>
+
+          <div className="mt-10 grid gap-5 sm:grid-cols-3">
+            <Link
+              href="/ingest"
+              className="group flex flex-col items-center gap-3 rounded-xl border p-6 transition-colors hover:bg-muted/50"
+            >
+              <Upload className="h-8 w-8 text-muted-foreground group-hover:text-foreground transition-colors" />
+              <div>
+                <h3 className="font-semibold">Ingest Data</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Upload video, audio, text, and PDF files for AI processing.
+                </p>
+              </div>
+            </Link>
+
+            <Link
+              href="/chat"
+              className="group flex flex-col items-center gap-3 rounded-xl border p-6 transition-colors hover:bg-muted/50"
+            >
+              <MessageSquare className="h-8 w-8 text-muted-foreground group-hover:text-foreground transition-colors" />
+              <div>
+                <h3 className="font-semibold">Ask VersionAI</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Ask questions and receive text, audio, and video responses.
+                </p>
+              </div>
+            </Link>
+
+            <div className="flex flex-col items-center gap-3 rounded-xl border p-6 opacity-80">
+              <Radio className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <h3 className="font-semibold">6 Microservices</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Ingestion, Processing, Brain, Voice, Video Avatar, and
+                  Real-Time Orchestrator.
+                </p>
+              </div>
             </div>
           </div>
-          <ServiceStatus />
-        </div>
-      </header>
-
-      <main className="flex-1">
-        <div className="mx-auto max-w-4xl px-6 py-10">
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold tracking-tight">File Ingestion</h2>
-            <p className="mt-1 text-muted-foreground">
-              Upload files to the VersionAI pipeline for automated AI processing —
-              transcription, frame extraction, OCR, and embeddings.
-            </p>
-          </div>
-
-          <UploadPanel />
-
-          <Separator className="my-10" />
-
-          <section className="grid gap-6 sm:grid-cols-3">
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold">Video & Audio</h3>
-              <p className="text-sm text-muted-foreground">
-                Automatically transcribed with Whisper. Video also gets frame
-                extraction via FFmpeg.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold">PDF & Documents</h3>
-              <p className="text-sm text-muted-foreground">
-                Processed through OCR and text embedding pipelines for
-                semantic search and retrieval.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold">Text & CSV</h3>
-              <p className="text-sm text-muted-foreground">
-                Directly embedded for vector search, enabling fast similarity
-                lookups across your data.
-              </p>
-            </div>
-          </section>
         </div>
       </main>
 
       <footer className="border-t py-6">
-        <div className="mx-auto max-w-4xl px-6 text-center text-xs text-muted-foreground">
-          VersionAI Ingestion Service &middot; Files are validated, stored in S3, and queued for processing.
+        <div className="mx-auto max-w-5xl px-6 text-center text-xs text-muted-foreground">
+          VersionAI &middot; Ingestion &middot; Processing &middot; AI Brain
+          &middot; Voice &middot; Video Avatar &middot; RT Orchestrator
         </div>
       </footer>
     </div>

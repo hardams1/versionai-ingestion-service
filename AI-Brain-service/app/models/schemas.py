@@ -18,6 +18,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(default=None, description="Resume an existing conversation")
     personality_id: str | None = Field(default=None, description="Override default personality")
     include_sources: bool = Field(default=True, description="Return source chunks used for grounding")
+    include_audio: bool = Field(default=False, description="Generate TTS audio of the response")
+    include_video: bool = Field(default=False, description="Generate talking-face video of the response")
 
 
 class SourceChunk(BaseModel):
@@ -48,6 +50,8 @@ class ChatResponse(BaseModel):
     model_used: str
     usage: TokenUsage | None = None
     latency_ms: float
+    audio_base64: str | None = Field(default=None, description="Base64-encoded audio when include_audio=True")
+    video_base64: str | None = Field(default=None, description="Base64-encoded video when include_video=True")
 
 
 # ---------------------------------------------------------------------------

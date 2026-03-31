@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VersionAI – File Ingestion",
+  title: "VersionAI",
   description:
-    "Upload video, audio, text, and PDF files for AI processing through the VersionAI ingestion pipeline.",
+    "AI-powered platform for ingesting data, asking questions, and generating audio/video responses.",
 };
 
 export default function RootLayout({

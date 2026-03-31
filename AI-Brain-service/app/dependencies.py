@@ -17,6 +17,7 @@ from app.services.personality_store import PersonalityStore
 from app.services.prompt_builder import PromptBuilder
 from app.services.retriever import BaseRetriever, FAISSRetriever, PineconeRetriever
 from app.services.safety import SafetyProcessor
+from app.services.integration import MediaClient
 from app.services.orchestrator import BrainOrchestrator
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -77,6 +78,11 @@ def get_safety_processor() -> SafetyProcessor:
 
 
 @lru_cache
+def get_media_client() -> MediaClient:
+    return MediaClient(get_settings())
+
+
+@lru_cache
 def get_orchestrator() -> BrainOrchestrator:
     return BrainOrchestrator(
         settings=get_settings(),
@@ -87,4 +93,5 @@ def get_orchestrator() -> BrainOrchestrator:
         personality_store=get_personality_store(),
         prompt_builder=get_prompt_builder(),
         safety=get_safety_processor(),
+        media_client=get_media_client(),
     )

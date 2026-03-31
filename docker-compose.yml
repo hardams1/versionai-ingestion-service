@@ -3,12 +3,14 @@ version: "3.9"
 # ==========================================================================
 # VersionAI — Unified Stack
 #
-#   Ingestion Service   :8000  (upload → S3 → SQS)
-#   Processing Service  :8001  (SQS → extract → embed → FAISS/Pinecone)
-#   AI Brain Service    :8002  (query → retrieve → LLM → respond)
-#   Voice Service       :8003  (text → TTS → audio with cloned voices)
-#   LocalStack          :4566  (S3 + SQS)
-#   Redis               :6379  (conversation memory)
+#   Ingestion Service       :8000  (upload → S3 → SQS)
+#   Processing Service      :8001  (SQS → extract → embed → FAISS/Pinecone)
+#   AI Brain Service        :8002  (query → retrieve → LLM → respond)
+#   Voice Service           :8003  (text → TTS → audio with cloned voices)
+#   Video Avatar Service    :8004  (audio → lip-synced talking face video)
+#   RT Orchestrator         :8005  (real-time pipeline: Brain → Voice → Video)
+#   LocalStack              :4566  (S3 + SQS)
+#   Redis                   :6379  (conversation memory)
 # ==========================================================================
 
 services:
@@ -111,6 +113,7 @@ services:
       - INGESTION_SERVICE_URL=http://ingestion:8000
       - PROCESSING_SERVICE_URL=http://processing:8001
       - VOICE_SERVICE_URL=http://voice:8003
+      - VIDEO_AVATAR_SERVICE_URL=http://video-avatar:8004
     depends_on:
       redis:
         condition: service_healthy
@@ -143,12 +146,59 @@ services:
     networks:
       - versionai
 
+  # ── Microservice #5: Video Avatar ───────────────────────────────────────
+
+  video-avatar:
+    build: ./Video-Avatar-service
+    ports:
+      - "8004:8004"
+    environment:
+      - RENDERER_PROVIDER=${RENDERER_PROVIDER:-mock}
+      - SYNCLABS_API_KEY=${SYNCLABS_API_KEY:-}
+      - D_ID_API_KEY=${D_ID_API_KEY:-}
+      - AVATAR_PROFILE_STORAGE=s3
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - S3_BUCKET_NAME=versionai-avatars
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - VOICE_SERVICE_URL=http://voice:8003
+      - INGESTION_SERVICE_URL=http://ingestion:8000
+      - INGESTION_S3_BUCKET=versionai-ingestion
+      - INGESTION_S3_PREFIX=uploads
+    depends_on:
+      localstack:
+        condition: service_healthy
+    volumes:
+      - avatar-profiles:/app/avatar_profiles
+      - avatar-images:/app/avatar_images
+    networks:
+      - versionai
+
+  # ── Microservice #6: Real-Time Orchestrator ────────────────────────────
+
+  orchestrator:
+    build: ./Real-time-Orchestrator
+    ports:
+      - "8005:8005"
+    environment:
+      - BRAIN_SERVICE_URL=http://brain:8002
+      - VOICE_SERVICE_URL=http://voice:8003
+      - VIDEO_AVATAR_SERVICE_URL=http://video-avatar:8004
+    depends_on:
+      - brain
+      - voice
+      - video-avatar
+    networks:
+      - versionai
+
 volumes:
   localstack-data:
   redis-data:
   vector-data:
   state-data:
   voice-profiles:
+  avatar-profiles:
+  avatar-images:
 
 networks:
   versionai:

@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     ingestion_service_url: str | None = Field(default=None, description="e.g. http://localhost:8000")
     processing_service_url: str | None = Field(default=None, description="e.g. http://localhost:8001")
     voice_service_url: str | None = Field(default=None, description="e.g. http://localhost:8003")
+    video_avatar_service_url: str | None = Field(default=None, description="e.g. http://localhost:8004")
 
     # --- Security ---
     api_key: str | None = None

@@ -1,0 +1,13 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+httpx>=0.28.0
+eval_type_backport>=0.2.0
+aioboto3>=13.3.0
+boto3>=1.36.0
+Pillow>=10.4.0
+
+# --- Testing ---
+pytest>=8.3.0
+pytest-asyncio>=0.23.0

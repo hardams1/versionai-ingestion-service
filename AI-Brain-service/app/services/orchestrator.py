@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING
 from app.models.schemas import ChatRequest, ChatResponse
 from app.models.enums import SafetyVerdict
 from app.services.embedder import BaseQueryEmbedder
+from app.services.integration import MediaClient
 from app.services.llm import BaseLLM
 from app.services.memory import ConversationMemory
 from app.services.personality_store import PersonalityStore
@@ -25,6 +27,7 @@ class BrainOrchestrator:
     """
     End-to-end pipeline:
       query → embed → retrieve → build prompt → LLM → safety → respond
+      optionally: → Voice (TTS) → Video Avatar (lip-sync)
     """
 
     def __init__(
@@ -37,6 +40,7 @@ class BrainOrchestrator:
         personality_store: PersonalityStore,
         prompt_builder: PromptBuilder,
         safety: SafetyProcessor,
+        media_client: MediaClient | None = None,
     ) -> None:
         self._settings = settings
         self._retriever = retriever
@@ -46,6 +50,7 @@ class BrainOrchestrator:
         self._personality_store = personality_store
         self._prompt_builder = prompt_builder
         self._safety = safety
+        self._media = media_client
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         start = time.perf_counter()
@@ -99,15 +104,36 @@ class BrainOrchestrator:
             assistant_message=safety_result.filtered_response,
         )
 
+        audio_b64: str | None = None
+        video_b64: str | None = None
+
+        if self._media and (request.include_audio or request.include_video):
+            audio_bytes = await self._media.synthesize_audio(
+                text=safety_result.filtered_response,
+                user_id=request.user_id,
+            )
+            if audio_bytes:
+                audio_b64 = base64.b64encode(audio_bytes).decode()
+
+                if request.include_video:
+                    video_bytes = await self._media.generate_video(
+                        audio_bytes=audio_bytes,
+                        user_id=request.user_id,
+                    )
+                    if video_bytes:
+                        video_b64 = base64.b64encode(video_bytes).decode()
+
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         logger.info(
-            "Chat completed: conv=%s, user=%s, sources=%d, safety=%s, model=%s, latency=%.0fms",
+            "Chat completed: conv=%s, user=%s, sources=%d, safety=%s, model=%s, audio=%s, video=%s, latency=%.0fms",
             conversation.conversation_id,
             request.user_id,
             len(context_chunks),
             safety_result.verdict.value,
             llm_response.model,
+            "yes" if audio_b64 else "no",
+            "yes" if video_b64 else "no",
             elapsed_ms,
         )
 
@@ -119,4 +145,6 @@ class BrainOrchestrator:
             model_used=llm_response.model,
             usage=llm_response.usage,
             latency_ms=round(elapsed_ms, 1),
+            audio_base64=audio_b64 if request.include_audio else None,
+            video_base64=video_b64 if request.include_video else None,
         )

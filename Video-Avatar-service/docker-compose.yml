@@ -1,0 +1,39 @@
+version: "3.9"
+
+# ==========================================================================
+# VersionAI Video Avatar Service — Local Development
+# ==========================================================================
+
+services:
+  video-avatar:
+    build: .
+    ports:
+      - "8004:8004"
+    env_file: .env
+    environment:
+      - RENDERER_PROVIDER=${RENDERER_PROVIDER:-mock}
+      - AVATAR_PROFILE_STORAGE=local
+    volumes:
+      - avatar-profiles:/app/avatar_profiles
+    networks:
+      - versionai
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+    networks:
+      - versionai
+
+volumes:
+  avatar-profiles:
+  localstack-data:
+
+networks:
+  versionai:
+    driver: bridge
