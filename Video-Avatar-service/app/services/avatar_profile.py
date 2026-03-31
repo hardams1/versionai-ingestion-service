@@ -266,11 +266,38 @@ class AvatarProfileService:
         self._settings = settings
 
     async def resolve_avatar(self, user_id: str) -> AvatarProfile:
-        """Return the avatar profile for a user, raising if not found.
+        """Return the avatar profile for a user.
 
-        NEVER generates random or generic faces.
+        In development mode with mock renderer, auto-creates a placeholder profile.
+        In production, raises AvatarProfileNotFoundError so callers register a real profile.
         """
-        return await self._store.get_profile(user_id)
+        try:
+            return await self._store.get_profile(user_id)
+        except AvatarProfileNotFoundError:
+            if self._settings.environment == "development" and self._settings.renderer_provider == "mock":
+                logger.info("Auto-creating default avatar profile for user=%s (development mock mode)", user_id)
+                return await self._get_or_create_default(user_id)
+            raise
+
+    async def _get_or_create_default(self, user_id: str) -> AvatarProfile:
+        """Create a minimal avatar profile for development/mock mode."""
+        now = datetime.now(timezone.utc)
+        profile = AvatarProfile(
+            user_id=user_id,
+            avatar_id=f"default-{user_id}",
+            source_image_path="mock://default-avatar.png",
+            provider=RendererProvider.MOCK,
+            display_name=f"Default Avatar ({user_id})",
+            expression_baseline="neutral",
+            image_width=512,
+            image_height=512,
+            image_format="PNG",
+            image_source=ImageSourceType.UPLOAD,
+            created_at=now,
+            updated_at=now,
+        )
+        await self._store.save_profile(profile)
+        return profile
 
     async def create_profile(
         self,

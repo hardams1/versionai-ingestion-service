@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from fastapi import Depends, HTTPException, Security
@@ -8,10 +9,11 @@ from fastapi.security import APIKeyHeader
 from app.config import Settings, get_settings
 from app.services.embedder import (
     BaseQueryEmbedder,
+    DemoQueryEmbedder,
     OpenAIQueryEmbedder,
     SentenceTransformerQueryEmbedder,
 )
-from app.services.llm import AnthropicLLM, BaseLLM, OpenAILLM
+from app.services.llm import AnthropicLLM, BaseLLM, DemoLLM, OpenAILLM
 from app.services.memory import ConversationMemory
 from app.services.personality_store import PersonalityStore
 from app.services.prompt_builder import PromptBuilder
@@ -19,6 +21,10 @@ from app.services.retriever import BaseRetriever, FAISSRetriever, PineconeRetrie
 from app.services.safety import SafetyProcessor
 from app.services.integration import MediaClient
 from app.services.orchestrator import BrainOrchestrator
+
+logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_KEYS = {"sk-your-key-here", "sk-ant-your-key-here", "", "your-key-here"}
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -41,9 +47,16 @@ def get_retriever() -> BaseRetriever:
     return FAISSRetriever(settings)
 
 
+def _is_placeholder(key: str | None) -> bool:
+    return key is None or key.strip() in _PLACEHOLDER_KEYS
+
+
 @lru_cache
 def get_query_embedder() -> BaseQueryEmbedder:
     settings = get_settings()
+    if settings.embedding_provider == "openai" and _is_placeholder(settings.openai_api_key):
+        logger.warning("OpenAI API key is a placeholder — using DemoQueryEmbedder (retrieval disabled)")
+        return DemoQueryEmbedder(dimensions=settings.openai_embedding_dimensions)
     if settings.embedding_provider == "openai":
         return OpenAIQueryEmbedder(settings)
     return SentenceTransformerQueryEmbedder(settings)
@@ -52,6 +65,12 @@ def get_query_embedder() -> BaseQueryEmbedder:
 @lru_cache
 def get_llm() -> BaseLLM:
     settings = get_settings()
+    if settings.llm_provider == "openai" and _is_placeholder(settings.openai_api_key):
+        logger.warning("OpenAI API key is a placeholder — using DemoLLM (set a real key in .env for production)")
+        return DemoLLM()
+    if settings.llm_provider == "anthropic" and _is_placeholder(settings.anthropic_api_key):
+        logger.warning("Anthropic API key is a placeholder — using DemoLLM")
+        return DemoLLM()
     if settings.llm_provider == "anthropic":
         return AnthropicLLM(settings)
     return OpenAILLM(settings)

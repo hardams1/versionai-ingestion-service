@@ -55,6 +55,16 @@ class OpenAIQueryEmbedder(BaseQueryEmbedder):
             raise RetrievalError(f"Embedding error: {exc}") from exc
 
 
+class DemoQueryEmbedder(BaseQueryEmbedder):
+    """Returns a zero vector so retrieval proceeds (and returns nothing) without an API key."""
+
+    def __init__(self, dimensions: int = 1536) -> None:
+        self._dimensions = dimensions
+
+    async def embed(self, text: str) -> list[float]:
+        return [0.0] * self._dimensions
+
+
 class SentenceTransformerQueryEmbedder(BaseQueryEmbedder):
     def __init__(self, settings: Settings) -> None:
         self._model_name = settings.st_model_name

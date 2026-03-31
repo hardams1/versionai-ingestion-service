@@ -343,9 +343,14 @@ export function ChatPanel() {
         }
       }
     } catch (err) {
-      const message =
+      const raw =
         err instanceof Error ? err.message : "Failed to send message";
-      toast.error(message);
+      const isConnectionError =
+        raw.includes("Failed to fetch") || raw.includes("ERR_CONNECTION");
+      const message = isConnectionError
+        ? "No backend services reachable. Start the services with: cd AI-Brain-service && source .venv/bin/activate && uvicorn app.main:app --port 8002"
+        : raw;
+      toast.error(message, { duration: 8000 });
       setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
     } finally {
       setIsLoading(false);

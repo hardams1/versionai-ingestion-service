@@ -4,13 +4,20 @@ import { useMemo } from "react";
 import { User, Bot, Clock, Cpu, FileText } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "@/lib/types";
 
+function detectAudioMime(b64: string): string {
+  if (b64.startsWith("UklGR")) return "audio/wav";
+  if (b64.startsWith("//u") || b64.startsWith("SUQ")) return "audio/mpeg";
+  if (b64.startsWith("T2dn")) return "audio/ogg";
+  return "audio/mpeg";
+}
+
 function MediaPlayer({ audio_base64, video_base64 }: { audio_base64?: string | null; video_base64?: string | null }) {
   const videoSrc = useMemo(
     () => (video_base64 ? `data:video/mp4;base64,${video_base64}` : null),
     [video_base64]
   );
   const audioSrc = useMemo(
-    () => (audio_base64 ? `data:audio/mp3;base64,${audio_base64}` : null),
+    () => (audio_base64 ? `data:${detectAudioMime(audio_base64)};base64,${audio_base64}` : null),
     [audio_base64]
   );
 

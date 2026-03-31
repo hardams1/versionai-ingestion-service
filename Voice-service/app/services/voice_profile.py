@@ -171,12 +171,18 @@ class VoiceProfileService:
         self._settings = settings
 
     async def resolve_voice(self, user_id: str) -> VoiceProfile:
-        """Return the voice profile for a user, raising if not found.
+        """Return the voice profile for a user.
 
-        Per system requirements: NEVER generate generic voices for known users.
-        The caller must handle VoiceProfileNotFoundError to register a profile first.
+        In development mode, auto-creates a default profile when none exists.
+        In production, raises VoiceProfileNotFoundError so callers register a profile first.
         """
-        return await self._store.get_profile(user_id)
+        try:
+            return await self._store.get_profile(user_id)
+        except VoiceProfileNotFoundError:
+            if self._settings.environment == "development":
+                logger.info("Auto-creating default voice profile for user=%s (development mode)", user_id)
+                return await self.get_or_create_default(user_id)
+            raise
 
     async def get_or_create_default(self, user_id: str) -> VoiceProfile:
         """Return existing profile or create a default one.

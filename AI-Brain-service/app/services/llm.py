@@ -135,6 +135,33 @@ class OpenAILLM(BaseLLM):
         )
 
 
+class DemoLLM(BaseLLM):
+    """Returns plausible canned responses so the full pipeline works without an API key."""
+
+    def model_name(self) -> str:
+        return "demo-mode"
+
+    async def generate(
+        self, messages: list[dict[str, str]], temperature: float | None = None, max_tokens: int | None = None
+    ) -> LLMResponse:
+        user_query = ""
+        for msg in reversed(messages):
+            if msg["role"] == "user":
+                user_query = msg["content"]
+                break
+
+        content = (
+            f"[Demo Mode] I received your question. "
+            f"In production, this would be answered by the configured LLM provider. "
+            f"Your query was: \"{user_query[:200]}\" — "
+            f"To enable real responses, set a valid OPENAI_API_KEY or ANTHROPIC_API_KEY "
+            f"in AI-Brain-service/.env and restart the service."
+        )
+
+        logger.info("DemoLLM generated response for query length=%d", len(user_query))
+        return LLMResponse(content=content, model="demo-mode", usage=None, finish_reason="stop")
+
+
 class AnthropicLLM(BaseLLM):
     def __init__(self, settings: Settings) -> None:
         if not settings.anthropic_api_key:
