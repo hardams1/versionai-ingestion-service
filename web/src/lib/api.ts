@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  ChatHistoryMessage,
   ChatRequest,
   ChatResponse,
   HealthResponse,
@@ -99,6 +100,14 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
     throw new Error(err.detail ?? `Chat failed with status ${res.status}`);
   }
 
+  return res.json();
+}
+
+export async function fetchChatHistory(conversationId: string): Promise<ChatHistoryMessage[]> {
+  const res = await fetch(`${BRAIN_URL}/api/v1/chat/history/${conversationId}`, {
+    headers: headers(),
+  });
+  if (!res.ok) return [];
   return res.json();
 }
 

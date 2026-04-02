@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Upload, MessageSquare } from "lucide-react";
+import { Upload, MessageSquare, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth/auth-provider";
+import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { href: "/ingest", label: "Ingest", icon: Upload },
@@ -12,6 +14,7 @@ const NAV_ITEMS = [
 
 export function NavHeader() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md">
@@ -45,6 +48,18 @@ export function NavHeader() {
             })}
           </nav>
         </div>
+
+        {user && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <User className="h-3.5 w-3.5" />
+              <span>{user.username}</span>
+            </div>
+            <Button variant="ghost" size="icon-sm" onClick={logout} title="Sign out">
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

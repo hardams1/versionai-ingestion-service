@@ -106,6 +106,12 @@ export interface ChatMessage {
   stage?: PipelineStage;
 }
 
+export interface ChatHistoryMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+}
+
 // ---------------------------------------------------------------------------
 // Real-Time Orchestrator
 // ---------------------------------------------------------------------------

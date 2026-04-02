@@ -15,8 +15,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { PipelineIndicator } from "@/components/chat/pipeline-indicator";
+import { useAuth } from "@/components/auth/auth-provider";
 import {
   createOrchestratorSocket,
+  fetchChatHistory,
   orchestrate,
   sendChatMessage,
 } from "@/lib/api";
@@ -28,17 +30,46 @@ import type {
 
 type ConnectionMode = "orchestrator-ws" | "orchestrator-http" | "brain-direct";
 
+function loadFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key: string, value: unknown): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* quota exceeded or private browsing */
+  }
+}
+
 export function ChatPanel() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [input, setInput] = useState("");
-  const [userId, setUserId] = useState("demo-user");
-  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [userId, setUserId] = useState(() => loadFromStorage("versionai_user_id", "demo-user"));
+  const [conversationId, setConversationId] = useState<string | undefined>(() =>
+    loadFromStorage<string | undefined>("versionai_conversation_id", undefined)
+  );
+
+  useEffect(() => {
+    if (user?.user_id && user.user_id !== userId) {
+      setUserId(user.user_id);
+    }
+  }, [user, userId]);
   const [includeAudio, setIncludeAudio] = useState(true);
   const [includeVideo, setIncludeVideo] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState<PipelineStage | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [mode, setMode] = useState<ConnectionMode>("orchestrator-http");
+  const [isHydrating, setIsHydrating] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingMsgRef = useRef<Partial<ChatMessageType>>({});
@@ -51,6 +82,41 @@ export function ChatPanel() {
     return () => {
       mountedRef.current = false;
     };
+  }, []);
+
+  // Persist userId and conversationId to localStorage
+  useEffect(() => { saveToStorage("versionai_user_id", userId); }, [userId]);
+  useEffect(() => { saveToStorage("versionai_conversation_id", conversationId ?? null); }, [conversationId]);
+
+  // Hydrate chat history from backend on mount
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+    setIsHydrating(true);
+
+    fetchChatHistory(conversationId)
+      .then((history) => {
+        if (cancelled || !mountedRef.current || !history.length) {
+          setIsHydrating(false);
+          return;
+        }
+        const hydrated: ChatMessageType[] = history
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m, i) => ({
+            id: `history-${i}`,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            timestamp: new Date(m.timestamp),
+          }));
+        setMessages(hydrated);
+        setIsHydrating(false);
+      })
+      .catch(() => {
+        if (!cancelled) setIsHydrating(false);
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -394,6 +460,7 @@ export function ChatPanel() {
     setConversationId(undefined);
     setCurrentStage(null);
     pendingMsgRef.current = {};
+    saveToStorage("versionai_conversation_id", null);
   }, []);
 
   const cycleMode = useCallback(() => {
@@ -503,7 +570,12 @@ export function ChatPanel() {
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-6">
-          {messages.length === 0 && !isLoading ? (
+          {isHydrating ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-3" />
+              <p className="text-sm text-muted-foreground">Loading conversation...</p>
+            </div>
+          ) : messages.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mb-4">
                 <Radio className="h-5 w-5 text-muted-foreground" />

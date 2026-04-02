@@ -15,6 +15,7 @@ from app.services.embedder import (
 )
 from app.services.llm import AnthropicLLM, BaseLLM, DemoLLM, OpenAILLM
 from app.services.memory import ConversationMemory
+from app.services.personality_engine import PersonalityEngine
 from app.services.personality_store import PersonalityStore
 from app.services.prompt_builder import PromptBuilder
 from app.services.retriever import BaseRetriever, FAISSRetriever, PineconeRetriever
@@ -102,6 +103,17 @@ def get_media_client() -> MediaClient:
 
 
 @lru_cache
+def get_personality_engine() -> PersonalityEngine:
+    memory = get_memory()
+    return PersonalityEngine(
+        retriever=get_retriever(),
+        embedder=get_query_embedder(),
+        settings=get_settings(),
+        redis_client=memory.redis_client,
+    )
+
+
+@lru_cache
 def get_orchestrator() -> BrainOrchestrator:
     return BrainOrchestrator(
         settings=get_settings(),
@@ -112,5 +124,6 @@ def get_orchestrator() -> BrainOrchestrator:
         personality_store=get_personality_store(),
         prompt_builder=get_prompt_builder(),
         safety=get_safety_processor(),
+        personality_engine=get_personality_engine(),
         media_client=get_media_client(),
     )

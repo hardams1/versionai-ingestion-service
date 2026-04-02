@@ -11,6 +11,7 @@ from app.services.embedder import BaseQueryEmbedder
 from app.services.integration import MediaClient
 from app.services.llm import BaseLLM
 from app.services.memory import ConversationMemory
+from app.services.personality_engine import PersonalityEngine
 from app.services.personality_store import PersonalityStore
 from app.services.prompt_builder import PromptBuilder
 from app.services.retriever import BaseRetriever
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 class BrainOrchestrator:
     """
     End-to-end pipeline:
-      query → embed → retrieve → build prompt → LLM → safety → respond
+      query → embed → retrieve → build identity + prompt → LLM → safety → respond
       optionally: → Voice (TTS) → Video Avatar (lip-sync)
     """
 
@@ -40,6 +41,7 @@ class BrainOrchestrator:
         personality_store: PersonalityStore,
         prompt_builder: PromptBuilder,
         safety: SafetyProcessor,
+        personality_engine: PersonalityEngine,
         media_client: MediaClient | None = None,
     ) -> None:
         self._settings = settings
@@ -50,6 +52,7 @@ class BrainOrchestrator:
         self._personality_store = personality_store
         self._prompt_builder = prompt_builder
         self._safety = safety
+        self._personality_engine = personality_engine
         self._media = media_client
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
@@ -68,6 +71,10 @@ class BrainOrchestrator:
                     f"Personality {request.personality_id} does not belong to user {request.user_id}"
                 )
 
+        identity_context = await self._personality_engine.get_identity_context(
+            user_id=request.user_id,
+        )
+
         query_vector = await self._embedder.embed(request.query)
 
         context_chunks = await self._retriever.search(
@@ -84,6 +91,7 @@ class BrainOrchestrator:
             context_chunks=context_chunks,
             conversation_history=history,
             personality=personality,
+            identity_context=identity_context,
         )
 
         llm_response = await self._llm.generate(messages)
@@ -126,10 +134,11 @@ class BrainOrchestrator:
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         logger.info(
-            "Chat completed: conv=%s, user=%s, sources=%d, safety=%s, model=%s, audio=%s, video=%s, latency=%.0fms",
+            "Chat completed: conv=%s, user=%s, sources=%d, identity=%s, safety=%s, model=%s, audio=%s, video=%s, latency=%.0fms",
             conversation.conversation_id,
             request.user_id,
             len(context_chunks),
+            "yes" if identity_context else "no",
             safety_result.verdict.value,
             llm_response.model,
             "yes" if audio_b64 else "no",

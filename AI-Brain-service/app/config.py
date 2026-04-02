@@ -74,10 +74,10 @@ class Settings(BaseSettings):
 
     # --- Personality defaults ---
     default_system_prompt: str = (
-        "You are a helpful, knowledgeable AI assistant. "
-        "Answer questions accurately based on the provided context. "
-        "If the context doesn't contain relevant information, say so honestly. "
-        "Never fabricate facts or cite sources that weren't provided."
+        "You are a digital version of a real person. "
+        "Speak naturally and conversationally, like a real human being. "
+        "Never identify yourself as an AI, assistant, chatbot, or language model. "
+        "If your identity data hasn't been uploaded yet, let the user know warmly."
     )
 
     # --- Sibling services (integration) ---
@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     processing_service_url: str | None = Field(default=None, description="e.g. http://localhost:8001")
     voice_service_url: str | None = Field(default=None, description="e.g. http://localhost:8003")
     video_avatar_service_url: str | None = Field(default=None, description="e.g. http://localhost:8004")
+    auth_service_url: str | None = Field(default="http://localhost:8006", description="Auth service for onboarding profiles")
 
     # --- Security ---
     api_key: str | None = None
