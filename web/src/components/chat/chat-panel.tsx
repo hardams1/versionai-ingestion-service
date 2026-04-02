@@ -22,6 +22,7 @@ import {
   orchestrate,
   sendChatMessage,
 } from "@/lib/api";
+import { fetchSettings } from "@/lib/settings-api";
 import type {
   ChatMessage as ChatMessageType,
   PipelineStage,
@@ -65,6 +66,17 @@ export function ChatPanel() {
   }, [user, userId]);
   const [includeAudio, setIncludeAudio] = useState(true);
   const [includeVideo, setIncludeVideo] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchSettings()
+      .then((s) => {
+        const m = s.output_mode;
+        setIncludeAudio(m === "voice" || m === "video" || m === "immersive");
+        setIncludeVideo(m === "video" || m === "immersive");
+      })
+      .catch(() => {});
+  }, [user]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState<PipelineStage | null>(null);
   const [wsConnected, setWsConnected] = useState(false);

@@ -9,6 +9,7 @@ from app.config import Settings, get_settings
 from app.services.brain_client import BrainClient
 from app.services.pipeline import OrchestrationPipeline
 from app.services.session import SessionManager
+from app.services.settings_client import SettingsClient
 from app.services.video_client import VideoClient
 from app.services.voice_client import VoiceClient
 from app.ws.handler import WebSocketHandler
@@ -42,6 +43,11 @@ def get_video_client() -> VideoClient:
 
 
 @lru_cache
+def get_settings_client() -> SettingsClient:
+    return SettingsClient(get_settings())
+
+
+@lru_cache
 def get_session_manager() -> SessionManager:
     return SessionManager(max_sessions=get_settings().max_concurrent_sessions)
 
@@ -52,6 +58,7 @@ def get_pipeline() -> OrchestrationPipeline:
         brain=get_brain_client(),
         voice=get_voice_client(),
         video=get_video_client(),
+        settings_client=get_settings_client(),
     )
 
 

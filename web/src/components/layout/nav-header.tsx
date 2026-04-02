@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Upload, MessageSquare, LogOut, User } from "lucide-react";
+import { Upload, MessageSquare, LogOut, User, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 const NAV_ITEMS = [
   { href: "/ingest", label: "Ingest", icon: Upload },
   { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 export function NavHeader() {

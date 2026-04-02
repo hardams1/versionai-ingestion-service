@@ -1,4 +1,5 @@
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "http://localhost:8006";
+const VIDEO_AVATAR_URL = process.env.NEXT_PUBLIC_VIDEO_AVATAR_URL ?? "http://localhost:8004";
 const TOKEN_KEY = "versionai_token";
 const USER_KEY = "versionai_auth_user";
 
@@ -135,4 +136,26 @@ export async function apiGetProfile(): Promise<OnboardingProfile> {
   });
   if (!res.ok) throw new Error("Failed to fetch profile");
   return res.json();
+}
+
+export async function apiUploadAvatar(
+  userId: string,
+  imageBase64: string,
+  displayName?: string,
+): Promise<void> {
+  const res = await fetch(`${VIDEO_AVATAR_URL}/api/v1/avatars`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      avatar_id: `avatar-${userId}`,
+      source_image_base64: imageBase64,
+      provider: "mock",
+      display_name: displayName || null,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(err.detail ?? "Avatar upload failed");
+  }
 }

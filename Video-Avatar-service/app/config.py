@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     port: int = 8004
 
     # --- Renderer provider ---
-    renderer_provider: Literal["synclabs", "d_id", "mock"] = "mock"
+    # "auto" tries D-ID → SyncLabs → FFmpeg based on which API keys are set
+    renderer_provider: Literal["synclabs", "d_id", "mock", "auto"] = "auto"
 
     # Sync Labs (lip-sync video generation)
     synclabs_api_key: str | None = None

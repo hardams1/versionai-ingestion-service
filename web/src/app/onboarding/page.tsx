@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Camera, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/components/auth/auth-provider";
-import { apiSubmitOnboarding, saveAuth, getToken, type AuthUser } from "@/lib/auth";
+import { apiSubmitOnboarding, apiUploadAvatar, saveAuth, getToken, type AuthUser } from "@/lib/auth";
 
 const STEPS = [
   { key: "basic", title: "Basic Info", description: "Tell us about yourself" },
@@ -120,8 +120,38 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormData>(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const router = useRouter();
+
+  const handlePhotoSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file (JPEG or PNG)");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("Image must be under 20MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAvatarPreview(dataUrl);
+      const b64 = dataUrl.split(",")[1];
+      setAvatarBase64(b64);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const clearPhoto = useCallback(() => {
+    setAvatarPreview(null);
+    setAvatarBase64(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
 
   const update = useCallback(
     <K extends keyof FormData>(key: K, value: FormData[K]) => {
@@ -174,6 +204,14 @@ export default function OnboardingPage() {
 
       await apiSubmitOnboarding(payload);
 
+      if (avatarBase64 && user) {
+        try {
+          await apiUploadAvatar(user.user_id, avatarBase64, form.full_name || undefined);
+        } catch (avatarErr) {
+          console.warn("Avatar upload failed (non-fatal):", avatarErr);
+        }
+      }
+
       if (user) {
         const updated: AuthUser = { ...user, onboarding_completed: true };
         const token = getToken();
@@ -216,6 +254,49 @@ export default function OnboardingPage() {
           <div className="space-y-4 min-h-[240px]">
             {step === 0 && (
               <>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Your Photo (used for AI video avatar)</label>
+                  <div className="flex items-center gap-4">
+                    {avatarPreview ? (
+                      <div className="relative">
+                        <img
+                          src={avatarPreview}
+                          alt="Avatar preview"
+                          className="h-20 w-20 rounded-full object-cover border-2 border-primary"
+                        />
+                        <button
+                          type="button"
+                          onClick={clearPhoto}
+                          className="absolute -top-1 -right-1 rounded-full bg-destructive p-0.5 text-destructive-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/30 hover:border-primary transition-colors"
+                      >
+                        <Camera className="h-6 w-6 text-muted-foreground" />
+                      </button>
+                    )}
+                    <div className="flex-1 text-sm text-muted-foreground">
+                      {avatarPreview ? (
+                        <p>Photo uploaded! This will be your AI video avatar.</p>
+                      ) : (
+                        <p>Upload a clear photo of your face. This will be used to generate video responses that look like you.</p>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    onChange={handlePhotoSelect}
+                    className="hidden"
+                  />
+                </div>
                 <InputField label="Full Name" id="full_name" value={form.full_name} onChange={(v) => update("full_name", v)} placeholder="John Doe" required />
                 <InputField label="Age" id="age" value={form.age} onChange={(v) => update("age", v)} placeholder="28" type="number" />
                 <SelectField label="Gender (optional)" id="gender" value={form.gender} onChange={(v) => update("gender", v)} options={[
@@ -307,6 +388,12 @@ export default function OnboardingPage() {
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
                   <h4 className="font-medium text-sm">Profile Summary</h4>
                   <div className="text-sm text-muted-foreground space-y-1">
+                    {avatarPreview && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <img src={avatarPreview} alt="Avatar" className="h-10 w-10 rounded-full object-cover" />
+                        <span className="text-foreground font-medium">Avatar photo uploaded</span>
+                      </div>
+                    )}
                     <p><span className="text-foreground font-medium">Name:</span> {form.full_name || "—"}</p>
                     {form.age && <p><span className="text-foreground font-medium">Age:</span> {form.age}</p>}
                     {form.location && <p><span className="text-foreground font-medium">Location:</span> {form.location}</p>}

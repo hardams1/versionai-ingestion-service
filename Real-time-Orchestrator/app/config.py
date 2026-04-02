@@ -34,6 +34,10 @@ class Settings(BaseSettings):
         default="http://localhost:8004",
         description="Video Avatar Service (lip-sync video)",
     )
+    profile_settings_service_url: str = Field(
+        default="http://localhost:8007",
+        description="Profile & Settings Service (output mode, preferences)",
+    )
 
     # --- Timeouts (seconds) ---
     brain_timeout: float = Field(default=30.0, description="Timeout for Brain chat call")

@@ -12,6 +12,7 @@ from app.utils.exceptions import BrainServiceError, OrchestratorError
 
 if TYPE_CHECKING:
     from app.services.brain_client import BrainClient
+    from app.services.settings_client import SettingsClient
     from app.services.video_client import VideoClient
     from app.services.voice_client import VoiceClient
 
@@ -36,10 +37,38 @@ class OrchestrationPipeline:
         brain: BrainClient,
         voice: VoiceClient,
         video: VideoClient,
+        settings_client: SettingsClient | None = None,
     ) -> None:
         self._brain = brain
         self._voice = voice
         self._video = video
+        self._settings_client = settings_client
+
+    async def _resolve_output_flags(
+        self, user_id: str, include_audio: bool, include_video: bool
+    ) -> tuple[bool, bool]:
+        """Apply output_mode from user settings to override flags.
+
+        If the user has no saved settings, respects the caller's original flags.
+        """
+        if not self._settings_client:
+            return include_audio, include_video
+        try:
+            prefs = await self._settings_client.get_user_output_mode(user_id)
+            if prefs is None:
+                return include_audio, include_video
+            mode = prefs.get("output_mode", "video")
+            if mode == "chat":
+                return False, False
+            elif mode == "voice":
+                return True, False
+            elif mode == "video":
+                return True, True
+            elif mode == "immersive":
+                return True, True
+        except Exception:
+            pass
+        return include_audio, include_video
 
     async def run(
         self,
@@ -58,6 +87,10 @@ class OrchestrationPipeline:
         rid = request_id or str(uuid.uuid4())
         result = PipelineResult(request_id=rid)
         pipeline_start = time.perf_counter()
+
+        include_audio, include_video = await self._resolve_output_flags(
+            user_id, include_audio, include_video,
+        )
 
         try:
             brain_data = await self._brain.chat(
@@ -130,6 +163,10 @@ class OrchestrationPipeline:
         """
         rid = request_id or str(uuid.uuid4())
         pipeline_start = time.perf_counter()
+
+        include_audio, include_video = await self._resolve_output_flags(
+            user_id, include_audio, include_video,
+        )
 
         yield WSOutgoingMessage(
             type=MessageType.ACK,

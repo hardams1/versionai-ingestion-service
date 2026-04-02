@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import io
 import logging
 import struct
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -80,10 +77,20 @@ class SyncLabsRenderer(BaseRenderer):
         idle_mode: bool = False,
     ) -> RenderResult:
         import base64
+        from pathlib import Path
+
+        image_path = avatar.source_image_path
+        if image_path and not image_path.startswith("mock://") and Path(image_path).is_file():
+            img_bytes = Path(image_path).read_bytes()
+            ext = Path(image_path).suffix.lower().lstrip(".")
+            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext, "image/jpeg")
+            video_url = f"data:{mime};base64,{base64.b64encode(img_bytes).decode()}"
+        else:
+            video_url = avatar.source_image_path
 
         payload = {
             "audioData": base64.b64encode(audio_data).decode(),
-            "videoUrl": avatar.source_image_path,
+            "videoUrl": video_url,
             "model": self._model,
             "synergize": True,
             "output_format": video_format.value,
@@ -142,7 +149,11 @@ class SyncLabsRenderer(BaseRenderer):
 
 
 class DIDRenderer(BaseRenderer):
-    """D-ID API — talking head generation from a still image + audio."""
+    """D-ID API — realistic lip-synced talking head from a still image + audio.
+
+    Flow: upload image → create talk → poll for completion → download result.
+    Local images are uploaded to D-ID's temporary storage first (24-48h TTL).
+    """
 
     def __init__(self, settings: Settings) -> None:
         if not settings.d_id_api_key:
@@ -151,16 +162,78 @@ class DIDRenderer(BaseRenderer):
         self._base_url = settings.d_id_api_url
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
-            headers={
-                "Authorization": f"Basic {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=httpx.Timeout(120.0, connect=15.0),
+            headers={"Authorization": f"Basic {self._api_key}"},
+            timeout=httpx.Timeout(180.0, connect=15.0),
         )
+        self._image_cache: dict[str, tuple[float, str]] = {}
 
     @property
     def provider_name(self) -> str:
         return "d_id"
+
+    async def _upload_image(self, image_path: str) -> str:
+        """Upload a local image to D-ID's /images endpoint.
+
+        Cached per (path, mtime) so updated files trigger a re-upload.
+        """
+        import os
+        from pathlib import Path
+
+        p = Path(image_path)
+        if not p.is_file():
+            raise RendererProviderError(f"Avatar image not found: {image_path}")
+
+        mtime = os.path.getmtime(image_path)
+        cached = self._image_cache.get(image_path)
+        if cached and cached[0] == mtime:
+            logger.debug("D-ID: reusing cached image URL for %s", image_path)
+            return cached[1]
+
+        img_bytes = p.read_bytes()
+        ext = p.suffix.lower().lstrip(".")
+        mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext, "image/jpeg")
+        filename = f"avatar.{ext}" if ext in ("jpg", "jpeg", "png") else "avatar.jpg"
+
+        logger.info("D-ID: uploading image (%d bytes) from %s", len(img_bytes), image_path)
+
+        try:
+            resp = await self._client.post(
+                "/images",
+                files={"image": (filename, img_bytes, mime)},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            url = data.get("url")
+            if not url:
+                raise RendererProviderError(f"D-ID image upload returned no URL: {data}")
+            logger.info("D-ID: image uploaded → %s", url[:80])
+            self._image_cache[image_path] = (mtime, url)
+            return url
+        except httpx.HTTPStatusError as exc:
+            raise RendererProviderError(
+                f"D-ID image upload failed ({exc.response.status_code}): {exc.response.text[:300]}"
+            ) from exc
+
+    async def _upload_audio(self, audio_data: bytes) -> str:
+        """Upload audio bytes to D-ID's /audios endpoint and return the hosted URL."""
+        logger.info("D-ID: uploading audio (%d bytes)", len(audio_data))
+        try:
+            resp = await self._client.post(
+                "/audios",
+                files={"audio": ("speech.mp3", audio_data, "audio/mpeg")},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            url = data.get("url")
+            if not url:
+                raise RendererProviderError(f"D-ID audio upload returned no URL: {data}")
+            duration = data.get("duration", 0)
+            logger.info("D-ID: audio uploaded → %s (%.1fs)", url[:80], duration)
+            return url
+        except httpx.HTTPStatusError as exc:
+            raise RendererProviderError(
+                f"D-ID audio upload failed ({exc.response.status_code}): {exc.response.text[:300]}"
+            ) from exc
 
     async def render(
         self,
@@ -171,39 +244,63 @@ class DIDRenderer(BaseRenderer):
         fps: int = 25,
         idle_mode: bool = False,
     ) -> RenderResult:
-        import base64
+        image_path = avatar.source_image_path
+        if not image_path or image_path.startswith("mock://"):
+            raise RendererProviderError(
+                "D-ID requires a real face photo. Upload a profile image first."
+            )
+
+        source_url = await self._upload_image(image_path)
+        audio_url = await self._upload_audio(audio_data)
 
         payload = {
-            "source_url": avatar.source_image_path,
+            "source_url": source_url,
             "script": {
                 "type": "audio",
-                "audio_url": f"data:audio/mp3;base64,{base64.b64encode(audio_data).decode()}",
+                "audio_url": audio_url,
             },
-            "config": {"result_format": video_format.value},
+            "config": {
+                "result_format": video_format.value,
+                "stitch": True,
+            },
         }
 
+        logger.info(
+            "D-ID: submitting talk for user=%s avatar=%s (%d audio bytes)",
+            avatar.user_id, avatar.avatar_id, len(audio_data),
+        )
+
         try:
-            resp = await self._client.post("/talks", json=payload)
+            resp = await self._client.post(
+                "/talks",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
             resp.raise_for_status()
             talk = resp.json()
             talk_id = talk["id"]
+            logger.info("D-ID: talk submitted, id=%s", talk_id)
         except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 402:
+                raise RendererProviderError(
+                    "D-ID: insufficient credits. Check your plan at https://www.d-id.com/"
+                ) from exc
             raise RendererProviderError(
-                f"D-ID submission failed ({exc.response.status_code}): {exc.response.text}"
+                f"D-ID submission failed ({exc.response.status_code}): {exc.response.text[:300]}"
             ) from exc
         except httpx.RequestError as exc:
             raise RendererProviderError(f"D-ID request failed: {exc}") from exc
 
-        video_bytes = await self._poll_talk(talk_id)
+        video_bytes, actual_duration = await self._poll_talk(talk_id)
 
         return RenderResult(
             video_data=video_bytes,
-            video_duration_seconds=len(audio_data) / 32000.0,
+            video_duration_seconds=actual_duration,
             resolution=resolution,
             fps=fps,
         )
 
-    async def _poll_talk(self, talk_id: str, max_wait: float = 300.0, interval: float = 2.0) -> bytes:
+    async def _poll_talk(self, talk_id: str, max_wait: float = 300.0, interval: float = 3.0) -> tuple[bytes, float]:
         elapsed = 0.0
         while elapsed < max_wait:
             try:
@@ -216,15 +313,27 @@ class DIDRenderer(BaseRenderer):
                     result_url = data.get("result_url")
                     if not result_url:
                         raise RendererProviderError("D-ID completed but returned no result_url")
-                    dl = await self._client.get(result_url)
-                    dl.raise_for_status()
-                    return dl.content
+                    logger.info("D-ID: talk %s done, downloading video", talk_id)
+                    async with httpx.AsyncClient(timeout=60.0) as dl_client:
+                        dl = await dl_client.get(result_url)
+                        dl.raise_for_status()
+                    duration = float(data.get("duration", 0) or 0)
+                    return dl.content, duration
 
                 if status in ("error", "rejected"):
-                    raise RendererProviderError(f"D-ID talk {talk_id} failed: {data.get('error', 'unknown')}")
+                    error_info = data.get("error", data.get("reject_reason", "unknown"))
+                    raise RendererProviderError(f"D-ID talk {talk_id} failed: {error_info}")
+
+                if status == "started":
+                    logger.debug("D-ID: talk %s processing (%.0fs elapsed)", talk_id, elapsed)
 
             except RendererProviderError:
                 raise
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    logger.debug("D-ID: talk %s not ready yet", talk_id)
+                else:
+                    raise RendererProviderError(f"D-ID poll error: {exc}") from exc
             except Exception as exc:
                 raise RendererProviderError(f"Error polling D-ID talk: {exc}") from exc
 
@@ -235,9 +344,10 @@ class DIDRenderer(BaseRenderer):
 
 
 class MockRenderer(BaseRenderer):
-    """Development/testing renderer that produces a minimal valid MP4.
+    """Local renderer that produces real playable MP4 videos using FFmpeg.
 
-    Deterministic: same audio + avatar → same output (hash-seeded).
+    Combines the user's avatar image (or a generated placeholder) with audio
+    into a proper H.264 + AAC MP4 that browsers can play natively.
     """
 
     @property
@@ -253,15 +363,75 @@ class MockRenderer(BaseRenderer):
         fps: int = 25,
         idle_mode: bool = False,
     ) -> RenderResult:
-        duration = max(0.5, len(audio_data) / 32000.0)
-        logger.info(
-            "MockRenderer: generating %.1fs video for avatar=%s user=%s (%d audio bytes, idle=%s)",
-            duration, avatar.avatar_id, avatar.user_id, len(audio_data), idle_mode,
-        )
-        await asyncio.sleep(0.05)
+        import shutil
+        import tempfile
+        from pathlib import Path
 
-        fingerprint = hashlib.sha256(audio_data + avatar.avatar_id.encode()).digest()[:16]
-        video_data = self._build_minimal_mp4(duration, resolution, fps, fingerprint)
+        w, h = (int(x) for x in resolution.split("x"))
+
+        logger.info(
+            "FFmpegRenderer: generating video for avatar=%s user=%s (%d audio bytes, res=%s)",
+            avatar.avatar_id, avatar.user_id, len(audio_data), resolution,
+        )
+
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            raise RendererProviderError("ffmpeg not found on PATH")
+
+        with tempfile.TemporaryDirectory(prefix="versionai_vid_") as tmpdir:
+            tmp = Path(tmpdir)
+            audio_file = tmp / "audio.mp3"
+            image_file = tmp / "avatar.png"
+            output_file = tmp / "output.mp4"
+
+            audio_file.write_bytes(audio_data)
+
+            image_path = avatar.source_image_path
+            real_image = (
+                image_path
+                and not image_path.startswith("mock://")
+                and Path(image_path).is_file()
+            )
+
+            if real_image:
+                image_file = Path(image_path)
+            else:
+                self._generate_placeholder_image(image_file, w, h, avatar)
+
+            cmd = [
+                ffmpeg_bin, "-y",
+                "-loop", "1",
+                "-i", str(image_file),
+                "-i", str(audio_file),
+                "-c:v", "libx264",
+                "-tune", "stillimage",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-pix_fmt", "yuv420p",
+                "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
+                "-r", str(fps),
+                "-shortest",
+                "-movflags", "+faststart",
+                str(output_file),
+            ]
+
+            loop = asyncio.get_running_loop()
+            proc = await loop.run_in_executor(None, lambda: __import__("subprocess").run(
+                cmd, capture_output=True, timeout=120,
+            ))
+
+            if proc.returncode != 0:
+                stderr = proc.stderr.decode(errors="replace")[-500:]
+                raise RendererProviderError(f"ffmpeg failed (code {proc.returncode}): {stderr}")
+
+            video_data = output_file.read_bytes()
+
+            duration = await self._probe_duration(ffmpeg_bin, str(output_file), loop)
+
+        logger.info(
+            "FFmpegRenderer: produced %d bytes (%.1fs) for user=%s",
+            len(video_data), duration, avatar.user_id,
+        )
 
         return RenderResult(
             video_data=video_data,
@@ -271,66 +441,89 @@ class MockRenderer(BaseRenderer):
         )
 
     @staticmethod
-    def _build_minimal_mp4(
-        duration: float, resolution: str, fps: int, fingerprint: bytes
-    ) -> bytes:
-        """Build a minimal ISO BMFF (MP4) container.
+    async def _probe_duration(ffmpeg_bin: str, path: str, loop) -> float:
+        ffprobe = ffmpeg_bin.replace("ffmpeg", "ffprobe")
+        try:
+            proc = await loop.run_in_executor(None, lambda: __import__("subprocess").run(
+                [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path],
+                capture_output=True, timeout=10,
+            ))
+            return float(proc.stdout.decode().strip())
+        except Exception:
+            return 0.0
 
-        Not a playable video, but structurally valid enough for integration tests
-        and size assertions. The fingerprint is embedded in mdat for determinism checks.
-        """
-        w, h = (int(x) for x in resolution.split("x"))
-        num_frames = max(1, int(duration * fps))
+    @staticmethod
+    def _generate_placeholder_image(path, w: int, h: int, avatar: AvatarProfile) -> None:
+        """Generate a simple placeholder PNG with the user's initial."""
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.new("RGB", (w, h), color=(30, 30, 30))
+            draw = ImageDraw.Draw(img)
 
-        buf = io.BytesIO()
+            initial = (avatar.display_name or avatar.user_id or "V")[0].upper()
 
-        # ftyp box
-        ftyp_data = b"isom" + struct.pack(">I", 0x200) + b"isomiso2mp41"
-        buf.write(struct.pack(">I", 8 + len(ftyp_data)))
-        buf.write(b"ftyp")
-        buf.write(ftyp_data)
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size=int(h * 0.4))
+            except Exception:
+                font = ImageFont.load_default()
 
-        # mvhd box (108 bytes total)
-        mvhd = io.BytesIO()
-        mvhd.write(struct.pack(">I", 108))       # box size
-        mvhd.write(b"mvhd")                       # box type
-        mvhd.write(struct.pack(">I", 0))           # version + flags
-        mvhd.write(struct.pack(">III", 0, 0, 1000))  # creation, modification, timescale
-        mvhd.write(struct.pack(">I", int(duration * 1000)))  # duration
-        mvhd.write(struct.pack(">I", 0x00010000))  # rate 1.0
-        mvhd.write(struct.pack(">H", 0x0100))      # volume 1.0
-        mvhd.write(b"\x00" * 10)                    # reserved
-        mvhd.write(struct.pack(">9I",              # 3x3 matrix
-            0x00010000, 0, 0,
-            0, 0x00010000, 0,
-            0, 0, 0x40000000,
-        ))
-        mvhd.write(b"\x00" * 24)                    # pre-defined
-        mvhd.write(struct.pack(">I", 2))            # next_track_ID
-        mvhd_bytes = mvhd.getvalue()
+            bbox = draw.textbbox((0, 0), initial, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.text(((w - tw) / 2, (h - th) / 2 - bbox[1]), initial, fill=(200, 200, 200), font=font)
 
-        # moov box wrapping mvhd
-        buf.write(struct.pack(">I", 8 + len(mvhd_bytes)))
-        buf.write(b"moov")
-        buf.write(mvhd_bytes)
+            draw.text(
+                (w / 2, h - 30), "Upload a photo for your avatar",
+                fill=(120, 120, 120), anchor="mm",
+                font=ImageFont.load_default(),
+            )
+            img.save(str(path), "PNG")
+        except ImportError:
+            import struct as _struct
+            _generate_minimal_png(path, w, h)
 
-        # mdat box with deterministic payload
-        frame_marker = fingerprint + struct.pack(">HHI", w, h, num_frames)
-        mdat_payload = frame_marker * max(1, num_frames // 10 + 1)
-        buf.write(struct.pack(">I", 8 + len(mdat_payload)))
-        buf.write(b"mdat")
-        buf.write(mdat_payload)
 
-        return buf.getvalue()
+def _generate_minimal_png(path, w: int, h: int) -> None:
+    """Fallback: write a solid dark-grey PNG without Pillow."""
+    import zlib
+    raw_row = b"\x00" + b"\x1e\x1e\x1e" * w
+    raw = b"".join(raw_row for _ in range(h))
+    compressed = zlib.compress(raw)
+
+    def _chunk(chunk_type: bytes, data: bytes) -> bytes:
+        import struct as _s
+        c = chunk_type + data
+        return _s.pack(">I", len(data)) + c + _s.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n"
+    png += _chunk(b"IHDR", ihdr)
+    png += _chunk(b"IDAT", compressed)
+    png += _chunk(b"IEND", b"")
+    path.write_bytes(png) if hasattr(path, "write_bytes") else open(str(path), "wb").write(png)
 
 
 def create_renderer(settings: Settings) -> BaseRenderer:
-    """Factory — instantiate the configured renderer provider."""
+    """Factory — instantiate the configured renderer provider.
+
+    If set to 'auto', tries D-ID → SyncLabs → FFmpeg based on available keys.
+    """
     provider = settings.renderer_provider
-    if provider == "synclabs":
-        return SyncLabsRenderer(settings)
-    elif provider == "d_id":
+
+    if provider == "auto":
+        if settings.d_id_api_key:
+            logger.info("Auto-selected D-ID renderer (lip-sync enabled)")
+            return DIDRenderer(settings)
+        if settings.synclabs_api_key:
+            logger.info("Auto-selected Sync Labs renderer (lip-sync enabled)")
+            return SyncLabsRenderer(settings)
+        logger.info("Auto-selected FFmpeg renderer (no lip-sync API keys found)")
+        return MockRenderer()
+
+    if provider == "d_id":
         return DIDRenderer(settings)
+    elif provider == "synclabs":
+        return SyncLabsRenderer(settings)
     elif provider == "mock":
         return MockRenderer()
     else:

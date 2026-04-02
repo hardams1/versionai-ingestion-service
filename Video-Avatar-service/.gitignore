@@ -8,6 +8,7 @@ dist/
 build/
 .pytest_cache/
 avatar_profiles/
+avatar_images/
 test_avatar_profiles/
 *.db
 .DS_Store
