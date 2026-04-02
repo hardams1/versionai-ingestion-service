@@ -12,6 +12,7 @@ from app.services.session import SessionManager
 from app.services.settings_client import SettingsClient
 from app.services.video_client import VideoClient
 from app.services.voice_client import VoiceClient
+from app.services.voice_training_client import VoiceTrainingClient
 from app.ws.handler import WebSocketHandler
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -53,12 +54,18 @@ def get_session_manager() -> SessionManager:
 
 
 @lru_cache
+def get_voice_training_client() -> VoiceTrainingClient:
+    return VoiceTrainingClient(get_settings())
+
+
+@lru_cache
 def get_pipeline() -> OrchestrationPipeline:
     return OrchestrationPipeline(
         brain=get_brain_client(),
         voice=get_voice_client(),
         video=get_video_client(),
         settings_client=get_settings_client(),
+        voice_training_client=get_voice_training_client(),
     )
 
 

@@ -145,6 +145,8 @@ class WebSocketHandler:
             audio_format=self._settings.default_audio_format,
             video_format=self._settings.default_video_format,
             request_id=request_id,
+            source_language=msg.source_language,
+            target_language=msg.target_language,
         ):
             await self._send(ws, out_msg)
 

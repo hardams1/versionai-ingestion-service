@@ -38,6 +38,10 @@ class Settings(BaseSettings):
         default="http://localhost:8007",
         description="Profile & Settings Service (output mode, preferences)",
     )
+    voice_training_service_url: str = Field(
+        default="http://localhost:8008",
+        description="Voice Training Service (language detection, translation, voice cloning)",
+    )
 
     # --- Timeouts (seconds) ---
     brain_timeout: float = Field(default=30.0, description="Timeout for Brain chat call")

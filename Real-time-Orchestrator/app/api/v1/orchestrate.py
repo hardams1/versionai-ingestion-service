@@ -42,6 +42,8 @@ async def orchestrate(
         audio_format=request.audio_format,
         video_format=request.video_format,
         request_id=request_id,
+        source_language=request.source_language,
+        target_language=request.target_language,
     )
 
     if result.error:

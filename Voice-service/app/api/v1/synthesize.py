@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.config import Settings, get_settings
-from app.dependencies import get_tts_engine, get_voice_profile_service, verify_api_key
+from app.dependencies import get_tts_engine, get_tts_registry, get_voice_profile_service, verify_api_key
 from app.models.enums import AudioFormat, SynthesisStatus, TTSProvider
 from app.models.schemas import SynthesizeRequest, SynthesizeResponse
 from app.services.tts import BaseTTSEngine
@@ -75,7 +75,6 @@ async def synthesize_preview(
 async def synthesize_audio(
     request: SynthesizeRequest,
     settings: Settings = Depends(get_settings),
-    tts: BaseTTSEngine = Depends(get_tts_engine),
     profile_svc: VoiceProfileService = Depends(get_voice_profile_service),
     _auth: None = Depends(verify_api_key),
 ) -> StreamingResponse:
@@ -83,12 +82,16 @@ async def synthesize_audio(
         raise TextTooLongError(len(request.text), settings.max_text_length)
 
     profile = await profile_svc.resolve_voice(request.user_id)
+
+    registry = get_tts_registry()
+    tts = registry.get(profile.provider.value)
+
     content_type = AUDIO_CONTENT_TYPES.get(request.audio_format, "audio/mpeg")
 
     logger.info(
-        "Synthesizing audio for user=%s voice=%s provider=%s (%d chars, stream=%s)",
+        "Synthesizing audio for user=%s voice=%s provider=%s engine=%s (%d chars, stream=%s)",
         request.user_id, profile.voice_id, profile.provider.value,
-        len(request.text), request.stream,
+        tts.provider_name, len(request.text), request.stream,
     )
 
     if request.stream:
@@ -103,8 +106,8 @@ async def synthesize_audio(
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     logger.info(
-        "Synthesized %d bytes for user=%s voice=%s in %.1fms",
-        len(audio_data), request.user_id, profile.voice_id, elapsed_ms,
+        "Synthesized %d bytes for user=%s voice=%s via %s in %.1fms",
+        len(audio_data), request.user_id, profile.voice_id, tts.provider_name, elapsed_ms,
     )
 
     async def _yield_bytes():

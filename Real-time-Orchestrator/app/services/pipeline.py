@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.services.settings_client import SettingsClient
     from app.services.video_client import VideoClient
     from app.services.voice_client import VoiceClient
+    from app.services.voice_training_client import VoiceTrainingClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +24,11 @@ class OrchestrationPipeline:
     """Coordinates Brain → Voice + Video Avatar in a low-latency pipeline.
 
     The flow is:
-      1. User query → Brain Service → response text
-      2. Response text → Voice Service → audio bytes  (parallel-ready)
-      3. Audio bytes → Video Avatar Service → video   (depends on #2)
-
-    Steps 2 and 3 are serialised (video needs audio), but the overall
-    pipeline is streamed: each completed stage emits a WebSocket event
-    so the client can render progressively.
+      0. Detect language → translate input to English (if needed)
+      1. English query → Brain Service → English response
+      2. Translate response → user's language
+      3. Translated text → Voice Service → audio bytes
+      4. Audio bytes → Video Avatar Service → video
     """
 
     def __init__(
@@ -38,11 +37,13 @@ class OrchestrationPipeline:
         voice: VoiceClient,
         video: VideoClient,
         settings_client: SettingsClient | None = None,
+        voice_training_client: VoiceTrainingClient | None = None,
     ) -> None:
         self._brain = brain
         self._voice = voice
         self._video = video
         self._settings_client = settings_client
+        self._lang_client = voice_training_client
 
     async def _resolve_output_flags(
         self, user_id: str, include_audio: bool, include_video: bool
@@ -70,6 +71,39 @@ class OrchestrationPipeline:
             pass
         return include_audio, include_video
 
+    async def _resolve_language(
+        self, user_id: str, query: str, source_lang: str | None, target_lang: str | None,
+    ) -> tuple[str, str, str]:
+        """Detect/resolve languages and translate query to English.
+
+        Returns (detected_lang, user_preferred_lang, english_query).
+        """
+        if not self._lang_client:
+            return "en", target_lang or "en", query
+
+        detected = source_lang
+        if not detected:
+            detected, _ = await self._lang_client.detect_language(query)
+
+        preferred = target_lang
+        if not preferred:
+            preferred = await self._lang_client.get_user_language(user_id)
+
+        english_query = query
+        if detected != "en":
+            english_query = await self._lang_client.translate(query, detected, "en")
+            logger.info("Translated input %s→en for user=%s", detected, user_id)
+
+        return detected, preferred, english_query
+
+    async def _translate_response(self, text: str, target_lang: str) -> str:
+        """Translate Brain's English response to user's language."""
+        if target_lang == "en" or not self._lang_client:
+            return text
+        translated = await self._lang_client.translate(text, "en", target_lang)
+        logger.info("Translated response en→%s", target_lang)
+        return translated
+
     async def run(
         self,
         user_id: str,
@@ -82,6 +116,8 @@ class OrchestrationPipeline:
         audio_format: str = "mp3",
         video_format: str = "mp4",
         request_id: str | None = None,
+        source_language: str | None = None,
+        target_language: str | None = None,
     ) -> PipelineResult:
         """Execute the full pipeline synchronously, returning a single result."""
         rid = request_id or str(uuid.uuid4())
@@ -92,14 +128,21 @@ class OrchestrationPipeline:
             user_id, include_audio, include_video,
         )
 
+        detected_lang, target_lang, english_query = await self._resolve_language(
+            user_id, query, source_language, target_language,
+        )
+        result.detected_language = detected_lang
+        result.response_language = target_lang
+
         try:
             brain_data = await self._brain.chat(
                 user_id=user_id,
-                query=query,
+                query=english_query,
                 conversation_id=conversation_id,
                 personality_id=personality_id,
             )
-            result.response_text = brain_data.get("response", "")
+            english_response = brain_data.get("response", "")
+            result.response_text = await self._translate_response(english_response, target_lang)
             result.conversation_id = brain_data.get("conversation_id", "")
             result.sources = brain_data.get("sources", [])
             result.model_used = brain_data.get("model_used", "")
@@ -155,12 +198,10 @@ class OrchestrationPipeline:
         audio_format: str = "mp3",
         video_format: str = "mp4",
         request_id: str | None = None,
+        source_language: str | None = None,
+        target_language: str | None = None,
     ) -> AsyncIterator[WSOutgoingMessage]:
-        """Execute the pipeline and yield WebSocket messages as each stage completes.
-
-        This is the primary entrypoint for WebSocket sessions — the caller
-        forwards each yielded message to the client immediately.
-        """
+        """Execute the pipeline and yield WebSocket messages as each stage completes."""
         rid = request_id or str(uuid.uuid4())
         pipeline_start = time.perf_counter()
 
@@ -168,13 +209,21 @@ class OrchestrationPipeline:
             user_id, include_audio, include_video,
         )
 
+        detected_lang, target_lang, english_query = await self._resolve_language(
+            user_id, query, source_language, target_language,
+        )
+
         yield WSOutgoingMessage(
             type=MessageType.ACK,
             request_id=rid,
-            data={"stage": PipelineStage.RECEIVED.value},
+            data={
+                "stage": PipelineStage.RECEIVED.value,
+                "detected_language": detected_lang,
+                "target_language": target_lang,
+            },
         )
 
-        # --- Stage 1: Brain ---
+        # --- Stage 1: Brain (always processes English) ---
         yield WSOutgoingMessage(
             type=MessageType.STAGE,
             request_id=rid,
@@ -184,7 +233,7 @@ class OrchestrationPipeline:
         try:
             brain_data = await self._brain.chat(
                 user_id=user_id,
-                query=query,
+                query=english_query,
                 conversation_id=conversation_id,
                 personality_id=personality_id,
             )
@@ -196,7 +245,9 @@ class OrchestrationPipeline:
             )
             return
 
-        response_text = brain_data.get("response", "")
+        english_response = brain_data.get("response", "")
+        response_text = await self._translate_response(english_response, target_lang)
+
         yield WSOutgoingMessage(
             type=MessageType.TEXT,
             request_id=rid,
@@ -206,12 +257,14 @@ class OrchestrationPipeline:
                 "sources": brain_data.get("sources", []),
                 "model_used": brain_data.get("model_used", ""),
                 "brain_latency_ms": brain_data.get("_brain_latency_ms", 0),
+                "detected_language": detected_lang,
+                "response_language": target_lang,
             },
         )
 
         audio_bytes: bytes | None = None
 
-        # --- Stage 2: Voice (TTS) ---
+        # --- Stage 2: Voice (TTS) — synthesizes translated text ---
         if include_audio and response_text:
             yield WSOutgoingMessage(
                 type=MessageType.STAGE,

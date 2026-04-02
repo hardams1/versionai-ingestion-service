@@ -21,6 +21,8 @@ class WSIncomingMessage(BaseModel):
     include_audio: bool = Field(default=True)
     include_video: bool = Field(default=True)
     request_id: str | None = None
+    source_language: str | None = Field(default=None, description="Override detected input language")
+    target_language: str | None = Field(default=None, description="Override output language")
 
 
 class WSOutgoingMessage(BaseModel):
@@ -44,6 +46,8 @@ class OrchestrateRequest(BaseModel):
     include_video: bool = Field(default=True, description="Generate lip-sync video")
     audio_format: str = "mp3"
     video_format: str = "mp4"
+    source_language: str | None = Field(default=None, description="Override detected input language")
+    target_language: str | None = Field(default=None, description="Override output language")
 
 
 class OrchestrateResponse(BaseModel):
@@ -105,3 +109,5 @@ class PipelineResult(BaseModel):
     total_latency_ms: float = 0.0
     error: str | None = None
     stage: PipelineStage = PipelineStage.RECEIVED
+    detected_language: str | None = None
+    response_language: str | None = None

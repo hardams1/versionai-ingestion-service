@@ -1,13 +1,21 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, Loader2, Camera, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Camera, Globe, Mic, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/components/auth/auth-provider";
 import { apiSubmitOnboarding, apiUploadAvatar, saveAuth, getToken, type AuthUser } from "@/lib/auth";
+import { VoiceRecorder } from "@/components/voice/voice-recorder";
+import {
+  SUPPORTED_LANGUAGES,
+  fetchTrainingScript,
+  updateLanguagePreference,
+  type TrainingScript,
+  type VoiceSampleResponse,
+} from "@/lib/voice-training-api";
 
 const STEPS = [
   { key: "basic", title: "Basic Info", description: "Tell us about yourself" },
@@ -15,6 +23,7 @@ const STEPS = [
   { key: "communication", title: "Communication", description: "How do you communicate?" },
   { key: "experience", title: "Life Experience", description: "Your background and stories" },
   { key: "beliefs", title: "Beliefs & Preferences", description: "Your worldview" },
+  { key: "voice", title: "Voice & Language", description: "Record your voice so your AI sounds like you" },
   { key: "review", title: "Review & Submit", description: "Confirm your profile" },
 ] as const;
 
@@ -126,6 +135,19 @@ export default function OnboardingPage() {
   const { user } = useAuth();
   const router = useRouter();
 
+  const [selectedLanguage, setSelectedLanguage] = useState("en");
+  const [trainingScript, setTrainingScript] = useState<TrainingScript | null>(null);
+  const [voiceSamples, setVoiceSamples] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(0);
+
+  useEffect(() => {
+    if (step === 5) {
+      fetchTrainingScript(selectedLanguage)
+        .then(setTrainingScript)
+        .catch(() => {});
+    }
+  }, [step, selectedLanguage]);
+
   const handlePhotoSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -210,6 +232,12 @@ export default function OnboardingPage() {
         } catch (avatarErr) {
           console.warn("Avatar upload failed (non-fatal):", avatarErr);
         }
+      }
+
+      try {
+        await updateLanguagePreference(selectedLanguage, [selectedLanguage]);
+      } catch {
+        console.warn("Language preference save failed (non-fatal)");
       }
 
       if (user) {
@@ -367,6 +395,73 @@ export default function OnboardingPage() {
 
             {step === 5 && (
               <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">Preferred Language</span>
+                </div>
+                <SelectField label="" id="language" value={selectedLanguage} onChange={(v) => setSelectedLanguage(v)} options={
+                  Object.entries(SUPPORTED_LANGUAGES).map(([code, name]) => ({ value: code, label: name }))
+                } />
+
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Mic className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Record Your Voice</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Record the full 2-minute training script below for the best voice clone.
+                    Use a quiet room and speak naturally, 6-8 inches from your mic.
+                  </p>
+
+                  <VoiceRecorder
+                    onSampleUploaded={(result: VoiceSampleResponse) => {
+                      setVoiceSamples((n) => n + 1);
+                      setTotalDuration((d) => d + result.duration_seconds);
+                    }}
+                  />
+
+                  {voiceSamples > 0 && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800 p-3 text-sm">
+                      <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                        {voiceSamples} sample{voiceSamples > 1 ? "s" : ""} uploaded
+                      </span>
+                      <span className="text-muted-foreground"> ({Math.round(totalDuration)}s total)</span>
+                    </div>
+                  )}
+                </div>
+
+                {trainingScript && (
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="text-sm font-medium">
+                      Training Script ({trainingScript.language_name}) — ~{trainingScript.estimated_duration_minutes} minutes
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Read this entire script aloud while recording for the best voice clone.
+                    </p>
+                    <div className="max-h-64 overflow-y-auto space-y-4 rounded-md border bg-muted/30 p-4">
+                      {trainingScript.sections.map((section) => (
+                        <div key={section.title} className="space-y-2">
+                          <p className="text-sm font-semibold text-foreground">{section.title}</p>
+                          <p className="text-xs text-muted-foreground italic">{section.instruction}</p>
+                          {section.prompts.map((prompt, i) => (
+                            <p key={i} className="text-sm leading-relaxed text-foreground/90 pl-3 border-l-2 border-primary/30">
+                              {prompt}
+                            </p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">
+                  You can skip this step and record your voice later in Settings.
+                </p>
+              </div>
+            )}
+
+            {step === 6 && (
+              <div className="space-y-4">
                 <div className="mb-2">
                   <SelectField label="Voice energy" id="energy" value={form.energy} onChange={(v) => update("energy", v)} options={[
                     { value: "", label: "Select…" },
@@ -400,6 +495,10 @@ export default function OnboardingPage() {
                     {form.personality_description && <p><span className="text-foreground font-medium">Personality:</span> {form.personality_description.slice(0, 80)}…</p>}
                     {form.formality && <p><span className="text-foreground font-medium">Style:</span> {form.formality}, humor: {form.uses_humor ? "yes" : "no"}</p>}
                     {form.energy && <p><span className="text-foreground font-medium">Voice:</span> {form.energy}, {form.response_length || "medium"} responses</p>}
+                    <p><span className="text-foreground font-medium">Language:</span> {SUPPORTED_LANGUAGES[selectedLanguage] || selectedLanguage}</p>
+                    {voiceSamples > 0 && (
+                      <p><span className="text-foreground font-medium">Voice samples:</span> {voiceSamples} ({Math.round(totalDuration)}s)</p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -7,7 +7,13 @@ from fastapi import Depends, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from app.config import Settings, get_settings
-from app.services.tts import BaseTTSEngine, MockTTSEngine, create_tts_engine
+from app.services.tts import (
+    BaseTTSEngine,
+    ElevenLabsTTSEngine,
+    MockTTSEngine,
+    OpenAITTSEngine,
+    create_tts_engine,
+)
 from app.services.voice_profile import (
     BaseVoiceProfileStore,
     LocalVoiceProfileStore,
@@ -49,6 +55,42 @@ def get_tts_engine() -> BaseTTSEngine:
         logger.warning("ElevenLabs API key missing/placeholder — falling back to MockTTSEngine")
         return MockTTSEngine()
     return create_tts_engine(settings)
+
+
+class TTSEngineRegistry:
+    """Holds engines by provider so we can dispatch per-profile."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._engines: dict[str, BaseTTSEngine] = {}
+        self._default = get_tts_engine()
+        self._engines[self._default.provider_name] = self._default
+
+    def get(self, provider: str) -> BaseTTSEngine:
+        if provider in self._engines:
+            return self._engines[provider]
+        try:
+            engine = self._build(provider)
+            self._engines[provider] = engine
+            return engine
+        except Exception:
+            logger.warning("Cannot create %s engine, using default", provider)
+            return self._default
+
+    def _build(self, provider: str) -> BaseTTSEngine:
+        s = self._settings
+        if provider == "elevenlabs" and s.elevenlabs_api_key:
+            return ElevenLabsTTSEngine(s)
+        if provider == "openai" and s.openai_api_key:
+            return OpenAITTSEngine(s)
+        if provider == "mock":
+            return MockTTSEngine()
+        raise ValueError(f"No credentials for provider: {provider}")
+
+
+@lru_cache
+def get_tts_registry() -> TTSEngineRegistry:
+    return TTSEngineRegistry(get_settings())
 
 
 @lru_cache

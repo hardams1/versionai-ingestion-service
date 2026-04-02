@@ -162,7 +162,12 @@ class ElevenLabsTTSEngine(BaseTTSEngine):
         payload = {
             "text": text,
             "model_id": self._model_id,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 1.0,
+                "style": 0.4,
+                "use_speaker_boost": True,
+            },
         }
         try:
             resp = await self._client.post(
@@ -190,7 +195,12 @@ class ElevenLabsTTSEngine(BaseTTSEngine):
         payload = {
             "text": text,
             "model_id": self._model_id,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 1.0,
+                "style": 0.4,
+                "use_speaker_boost": True,
+            },
         }
         try:
             async with self._client.stream(

@@ -17,6 +17,7 @@ from app.dependencies import (
     get_session_manager,
     get_video_client,
     get_voice_client,
+    get_voice_training_client,
     get_ws_handler,
 )
 from app.middleware.logging import RequestLoggingMiddleware
@@ -106,17 +107,19 @@ async def health() -> HealthResponse:
     brain = get_brain_client()
     voice = get_voice_client()
     video = get_video_client()
+    voice_training = get_voice_training_client()
     session_mgr = get_session_manager()
 
     checks = await asyncio.gather(
         brain.health(),
         voice.health(),
         video.health(),
+        voice_training.health(),
         return_exceptions=True,
     )
 
     services: dict[str, ServiceHealth] = {}
-    for name, result in zip(["brain", "voice", "video_avatar"], checks):
+    for name, result in zip(["brain", "voice", "video_avatar", "voice_training"], checks):
         if isinstance(result, Exception):
             services[name] = ServiceHealth(status="error", detail=str(result))
         else:

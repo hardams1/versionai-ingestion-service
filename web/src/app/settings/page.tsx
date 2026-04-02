@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  Globe,
   Loader2,
   MessageSquare,
   Mic,
@@ -34,6 +35,18 @@ import {
   type UserProfile,
   type UserSettings,
 } from "@/lib/settings-api";
+import { VoiceRecorder } from "@/components/voice/voice-recorder";
+import {
+  SUPPORTED_LANGUAGES,
+  cloneVoice,
+  fetchTrainingScript,
+  fetchVoiceProfile,
+  retrainVoice,
+  updateLanguagePreference,
+  type TrainingScript,
+  type VoiceProfile,
+  type VoiceSampleResponse,
+} from "@/lib/voice-training-api";
 
 const OUTPUT_MODES = [
   {
@@ -96,6 +109,11 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
 
+  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null);
+  const [cloning, setCloning] = useState(false);
+  const [retraining, setRetraining] = useState(false);
+  const [trainingScript, setTrainingScript] = useState<TrainingScript | null>(null);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -110,6 +128,15 @@ export default function SettingsPage() {
         setEmail(p.email || "");
         setBio(p.bio || "");
         if (p.image_url) setImagePreview(p.image_url);
+
+        try {
+          const vp = await fetchVoiceProfile();
+          if (!cancelled) setVoiceProfile(vp);
+          const script = await fetchTrainingScript(vp?.primary_language ?? "en");
+          if (!cancelled) setTrainingScript(script);
+        } catch {
+          // voice training service may not be running
+        }
       } catch (err) {
         if (!cancelled) toast.error("Failed to load settings");
       } finally {
@@ -341,6 +368,229 @@ export default function SettingsPage() {
                 </button>
               );
             })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Voice Training */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Mic className="h-5 w-5" />
+            Voice Identity
+          </CardTitle>
+          <CardDescription>
+            Record the full 2-minute training script below so the AI sounds exactly like you.
+            Use a quiet room, speak 6-8 inches from your microphone, and maintain a natural pace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {voiceProfile && voiceProfile.cloning_status === "ready" ? (
+            <div className="space-y-3">
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    Voice cloned successfully
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {voiceProfile.voice_name && <p>Voice: {voiceProfile.voice_name}</p>}
+                  <p>{voiceProfile.total_samples} sample{voiceProfile.total_samples !== 1 ? "s" : ""}, {Math.round(voiceProfile.total_duration_seconds)}s total</p>
+                  {voiceProfile.voice_service_synced && <p className="text-emerald-600 dark:text-emerald-400">Synced to AI voice engine</p>}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3">
+                <p className="text-xs text-amber-800 dark:text-amber-300 font-medium mb-1">
+                  Not satisfied with the voice quality?
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">
+                  For a better match, retrain with the full 2-minute script in a quiet environment.
+                  Speak naturally at a consistent volume, 6-8 inches from the mic.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    setRetraining(true);
+                    try {
+                      const result = await retrainVoice();
+                      setVoiceProfile((vp) => vp ? {
+                        ...vp,
+                        elevenlabs_voice_id: null,
+                        voice_name: null,
+                        cloning_status: "pending",
+                        total_samples: 0,
+                        total_duration_seconds: 0,
+                        voice_service_synced: false,
+                      } : vp);
+                      toast.success(result.message);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Retrain failed");
+                    } finally {
+                      setRetraining(false);
+                    }
+                  }}
+                  disabled={retraining}
+                >
+                  {retraining ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Resetting...</>
+                  ) : (
+                    <><Sparkles className="h-4 w-4 mr-1" /> Retrain My Voice</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {voiceProfile && voiceProfile.total_samples > 0 && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                  <span className="font-medium">{voiceProfile.total_samples} sample{voiceProfile.total_samples !== 1 ? "s" : ""}</span>
+                  <span className="text-muted-foreground"> ({Math.round(voiceProfile.total_duration_seconds)}s total)</span>
+                  {voiceProfile.total_duration_seconds < 90 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                      Need at least 90s for voice cloning ({Math.round(90 - voiceProfile.total_duration_seconds)}s more).
+                      Read the full script below for best accuracy.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-3">
+                <p className="text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">Tips for best voice quality:</p>
+                <ul className="text-xs text-blue-700 dark:text-blue-400 space-y-0.5 list-disc list-inside">
+                  <li>Use a quiet room with no background noise</li>
+                  <li>Stay 6-8 inches from your microphone</li>
+                  <li>Speak at your natural pace — don&apos;t rush</li>
+                  <li>Read the entire 2-minute script below in one recording</li>
+                  <li>Keep a consistent volume throughout</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {(!voiceProfile || voiceProfile.cloning_status !== "ready") && (
+            <>
+              <VoiceRecorder
+                onSampleUploaded={(result: VoiceSampleResponse) => {
+                  setVoiceProfile((vp) =>
+                    vp
+                      ? {
+                          ...vp,
+                          total_samples: vp.total_samples + 1,
+                          total_duration_seconds: vp.total_duration_seconds + result.duration_seconds,
+                        }
+                      : {
+                          user_id: user?.user_id ?? "",
+                          elevenlabs_voice_id: null,
+                          voice_name: null,
+                          cloning_status: "pending",
+                          primary_language: "en",
+                          preferred_languages: [],
+                          total_samples: 1,
+                          total_duration_seconds: result.duration_seconds,
+                          avg_pitch_hz: null,
+                          speaking_rate_wpm: null,
+                          voice_service_synced: false,
+                        }
+                  );
+                  toast.success(result.message);
+                }}
+              />
+
+              {voiceProfile && voiceProfile.total_duration_seconds >= 90 && voiceProfile.cloning_status !== "ready" && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    setCloning(true);
+                    try {
+                      const result = await cloneVoice(fullName || undefined);
+                      setVoiceProfile((vp) => vp ? { ...vp, ...result, voice_service_synced: true } : vp);
+                      toast.success(result.message);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Cloning failed");
+                    } finally {
+                      setCloning(false);
+                    }
+                  }}
+                  disabled={cloning}
+                >
+                  {cloning ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Cloning voice...</>
+                  ) : (
+                    <><Sparkles className="h-4 w-4 mr-1" /> Clone My Voice</>
+                  )}
+                </Button>
+              )}
+            </>
+          )}
+
+          {trainingScript && (!voiceProfile || voiceProfile.cloning_status !== "ready") && (
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-sm font-medium">
+                Voice Training Script ({trainingScript.language_name}) — ~{trainingScript.estimated_duration_minutes} minutes
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Read this entire script aloud while recording. This covers all the sounds
+                needed for a high-quality voice clone.
+              </p>
+              <div className="max-h-80 overflow-y-auto space-y-4 rounded-md border bg-muted/30 p-4">
+                {trainingScript.sections.map((section) => (
+                  <div key={section.title} className="space-y-2">
+                    <p className="text-sm font-semibold text-foreground">{section.title}</p>
+                    <p className="text-xs text-muted-foreground italic">{section.instruction}</p>
+                    {section.prompts.map((prompt, i) => (
+                      <p key={i} className="text-sm leading-relaxed text-foreground/90 pl-3 border-l-2 border-primary/30">
+                        {prompt}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Language Preference */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Language Preference
+          </CardTitle>
+          <CardDescription>
+            Choose your preferred language. The AI will detect your input language and respond accordingly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Primary Language</label>
+              <select
+                value={voiceProfile?.primary_language ?? "en"}
+                onChange={async (e) => {
+                  const lang = e.target.value;
+                  setVoiceProfile((vp) => vp ? { ...vp, primary_language: lang } : vp);
+                  try {
+                    await updateLanguagePreference(lang, [lang]);
+                    toast.success(`Language set to ${SUPPORTED_LANGUAGES[lang] || lang}`);
+                  } catch {
+                    toast.error("Failed to update language");
+                  }
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+              >
+                {Object.entries(SUPPORTED_LANGUAGES).map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Supports 12 languages including Yoruba and Nigerian Pidgin.
+              Input in any language is auto-detected and translated.
+            </p>
           </div>
         </CardContent>
       </Card>

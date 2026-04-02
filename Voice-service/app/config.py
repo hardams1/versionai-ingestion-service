@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8003
 
-    # --- TTS Provider ---
-    tts_provider: Literal["openai", "elevenlabs", "mock"] = "openai"
+    # --- TTS Provider (default engine; per-user profile overrides via registry) ---
+    tts_provider: Literal["openai", "elevenlabs", "mock"] = "elevenlabs"
 
     # OpenAI TTS
     openai_api_key: str | None = None
