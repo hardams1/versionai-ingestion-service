@@ -35,6 +35,11 @@ import {
   type UserProfile,
   type UserSettings,
 } from "@/lib/settings-api";
+import {
+  fetchMySocialProfile,
+  updateSocialProfile,
+  type SocialProfile,
+} from "@/lib/social-api";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import {
   SUPPORTED_LANGUAGES,
@@ -109,6 +114,11 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
 
+  const [socialProfile, setSocialProfile] = useState<SocialProfile | null>(null);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [aiAccessLevel, setAiAccessLevel] = useState<"public" | "followers_only" | "no_one">("public");
+  const [savingSocial, setSavingSocial] = useState(false);
+
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null);
   const [cloning, setCloning] = useState(false);
   const [retraining, setRetraining] = useState(false);
@@ -128,6 +138,17 @@ export default function SettingsPage() {
         setEmail(p.email || "");
         setBio(p.bio || "");
         if (p.image_url) setImagePreview(p.image_url);
+
+        try {
+          const sp = await fetchMySocialProfile();
+          if (!cancelled) {
+            setSocialProfile(sp);
+            setIsPrivate(sp.is_private);
+            setAiAccessLevel(sp.ai_access_level);
+          }
+        } catch {
+          // social graph service may not be running
+        }
 
         try {
           const vp = await fetchVoiceProfile();
@@ -330,6 +351,87 @@ export default function SettingsPage() {
           <Button size="sm" onClick={handleSaveProfile} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
             Save Profile
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Privacy & AI Access Control */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Privacy & AI Access</CardTitle>
+          <CardDescription>
+            Control who can follow you and interact with your AI clone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* Private account toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Private Account</p>
+              <p className="text-xs text-muted-foreground">
+                When enabled, new followers must be approved by you
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={isPrivate}
+              onClick={() => setIsPrivate(!isPrivate)}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                isPrivate ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ${
+                  isPrivate ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* AI Access Level */}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              AI Access Level
+            </label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Who can interact with your AI clone
+            </p>
+            <select
+              value={aiAccessLevel}
+              onChange={(e) => setAiAccessLevel(e.target.value as typeof aiAccessLevel)}
+              className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="public">Public — Anyone can interact</option>
+              <option value="followers_only">Followers Only — Must follow you first</option>
+              <option value="no_one">No One — AI interactions disabled</option>
+            </select>
+          </div>
+
+          <Button
+            size="sm"
+            disabled={savingSocial}
+            onClick={async () => {
+              setSavingSocial(true);
+              try {
+                const updated = await updateSocialProfile({
+                  is_private: isPrivate,
+                  ai_access_level: aiAccessLevel,
+                });
+                setSocialProfile(updated);
+                toast.success("Privacy settings saved");
+              } catch {
+                toast.error("Failed to save privacy settings");
+              } finally {
+                setSavingSocial(false);
+              }
+            }}
+          >
+            {savingSocial ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <Save className="h-4 w-4 mr-1" />
+            )}
+            Save Privacy Settings
           </Button>
         </CardContent>
       </Card>

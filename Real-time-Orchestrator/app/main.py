@@ -15,6 +15,8 @@ from app.config import get_settings
 from app.dependencies import (
     get_brain_client,
     get_session_manager,
+    get_social_client,
+    get_stt_client,
     get_video_client,
     get_voice_client,
     get_voice_training_client,
@@ -108,6 +110,8 @@ async def health() -> HealthResponse:
     voice = get_voice_client()
     video = get_video_client()
     voice_training = get_voice_training_client()
+    stt = get_stt_client()
+    social = get_social_client()
     session_mgr = get_session_manager()
 
     checks = await asyncio.gather(
@@ -115,11 +119,13 @@ async def health() -> HealthResponse:
         voice.health(),
         video.health(),
         voice_training.health(),
+        stt.health(),
+        social.health(),
         return_exceptions=True,
     )
 
     services: dict[str, ServiceHealth] = {}
-    for name, result in zip(["brain", "voice", "video_avatar", "voice_training"], checks):
+    for name, result in zip(["brain", "voice", "video_avatar", "voice_training", "speech_to_text", "social_graph"], checks):
         if isinstance(result, Exception):
             services[name] = ServiceHealth(status="error", detail=str(result))
         else:

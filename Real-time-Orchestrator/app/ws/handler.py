@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -94,6 +95,10 @@ class WebSocketHandler:
             await self._handle_query(ws, session_id, raw)
             return
 
+        if msg_type == MessageType.AUDIO_QUERY.value:
+            await self._handle_audio_query(ws, session_id, raw)
+            return
+
         await self._send(ws, WSOutgoingMessage(
             type=MessageType.ERROR,
             data={"detail": f"Unknown message type: {msg_type}"},
@@ -135,20 +140,96 @@ class WebSocketHandler:
 
         request_id = msg.request_id or str(uuid.uuid4())
 
-        async for out_msg in self._pipeline.run_streaming(
-            user_id=msg.user_id,
-            query=msg.query,
-            conversation_id=msg.conversation_id,
-            personality_id=msg.personality_id,
-            include_audio=msg.include_audio,
-            include_video=msg.include_video,
-            audio_format=self._settings.default_audio_format,
-            video_format=self._settings.default_video_format,
-            request_id=request_id,
-            source_language=msg.source_language,
-            target_language=msg.target_language,
-        ):
-            await self._send(ws, out_msg)
+        try:
+            async for out_msg in self._pipeline.run_streaming(
+                user_id=msg.user_id,
+                query=msg.query,
+                conversation_id=msg.conversation_id,
+                personality_id=msg.personality_id,
+                target_user_id=msg.target_user_id,
+                include_audio=msg.include_audio,
+                include_video=msg.include_video,
+                audio_format=self._settings.default_audio_format,
+                video_format=self._settings.default_video_format,
+                request_id=request_id,
+                source_language=msg.source_language,
+                target_language=msg.target_language,
+            ):
+                await self._send(ws, out_msg)
+        except Exception as exc:
+            if getattr(exc, "code", None) == "access_denied":
+                await self._send(ws, WSOutgoingMessage(
+                    type=MessageType.ERROR,
+                    request_id=request_id,
+                    data={"detail": str(exc), "code": "access_denied"},
+                ))
+            else:
+                raise
+
+        if session:
+            session.state = SessionState.IDLE
+            session.last_request_id = request_id
+
+    async def _handle_audio_query(
+        self,
+        ws: WebSocket,
+        session_id: str,
+        raw: dict,
+    ) -> None:
+        """Handle voice input: decode base64 audio, transcribe, then run pipeline."""
+        try:
+            msg = WSIncomingMessage(**raw)
+        except (ValidationError, TypeError) as exc:
+            await self._send(ws, WSOutgoingMessage(
+                type=MessageType.ERROR,
+                data={"detail": f"Invalid message: {exc}"},
+            ))
+            return
+
+        if not msg.user_id or not msg.audio_base64:
+            await self._send(ws, WSOutgoingMessage(
+                type=MessageType.ERROR,
+                data={"detail": "user_id and audio_base64 are required for audio_query"},
+            ))
+            return
+
+        try:
+            audio_bytes = base64.b64decode(msg.audio_base64)
+        except Exception:
+            await self._send(ws, WSOutgoingMessage(
+                type=MessageType.ERROR,
+                data={"detail": "Invalid base64 audio data"},
+            ))
+            return
+
+        session = self._sessions.get(session_id)
+        if session:
+            session.state = SessionState.PROCESSING
+            session.user_id = msg.user_id
+
+        request_id = msg.request_id or str(uuid.uuid4())
+
+        try:
+            async for out_msg in self._pipeline.run_streaming_with_audio(
+                user_id=msg.user_id,
+                audio_bytes=audio_bytes,
+                conversation_id=msg.conversation_id,
+                personality_id=msg.personality_id,
+                include_audio=msg.include_audio,
+                include_video=msg.include_video,
+                audio_format=self._settings.default_audio_format,
+                video_format=self._settings.default_video_format,
+                request_id=request_id,
+                target_language=msg.target_language,
+            ):
+                await self._send(ws, out_msg)
+        except Exception as exc:
+            logger.error("Audio pipeline error: %s", exc)
+            await self._send(ws, WSOutgoingMessage(
+                type=MessageType.ERROR,
+                request_id=request_id,
+                data={"detail": f"Transcription failed: {exc}"},
+            ))
 
         if session:
             session.state = SessionState.IDLE

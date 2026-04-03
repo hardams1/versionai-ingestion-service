@@ -10,6 +10,8 @@ from app.services.brain_client import BrainClient
 from app.services.pipeline import OrchestrationPipeline
 from app.services.session import SessionManager
 from app.services.settings_client import SettingsClient
+from app.services.social_client import SocialGraphClient
+from app.services.stt_client import STTClient
 from app.services.video_client import VideoClient
 from app.services.voice_client import VoiceClient
 from app.services.voice_training_client import VoiceTrainingClient
@@ -59,6 +61,16 @@ def get_voice_training_client() -> VoiceTrainingClient:
 
 
 @lru_cache
+def get_stt_client() -> STTClient:
+    return STTClient(get_settings())
+
+
+@lru_cache
+def get_social_client() -> SocialGraphClient:
+    return SocialGraphClient(get_settings())
+
+
+@lru_cache
 def get_pipeline() -> OrchestrationPipeline:
     return OrchestrationPipeline(
         brain=get_brain_client(),
@@ -66,6 +78,8 @@ def get_pipeline() -> OrchestrationPipeline:
         video=get_video_client(),
         settings_client=get_settings_client(),
         voice_training_client=get_voice_training_client(),
+        stt_client=get_stt_client(),
+        social_client=get_social_client(),
     )
 
 

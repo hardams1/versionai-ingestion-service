@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import {
+  Mic,
+  MicOff,
   Send,
   Volume2,
   Video,
@@ -21,6 +23,7 @@ import {
   fetchChatHistory,
   orchestrate,
   sendChatMessage,
+  transcribeAudio,
 } from "@/lib/api";
 import { fetchSettings } from "@/lib/settings-api";
 import type {
@@ -82,6 +85,15 @@ export function ChatPanel() {
   const [wsConnected, setWsConnected] = useState(false);
   const [mode, setMode] = useState<ConnectionMode>("orchestrator-http");
   const [isHydrating, setIsHydrating] = useState(false);
+
+  // Voice input state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingMsgRef = useRef<Partial<ChatMessageType>>({});
@@ -211,6 +223,24 @@ export function ChatPanel() {
         setCurrentStage("received");
         break;
 
+      case "transcription": {
+        const transcribedText = msg.data.text as string;
+        if (transcribedText) {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "user" && last.content === "...") {
+              return [
+                ...prev.slice(0, -1),
+                { ...last, content: transcribedText },
+              ];
+            }
+            return prev;
+          });
+        }
+        setCurrentStage("transcription");
+        break;
+      }
+
       case "stage":
         setCurrentStage(msg.data.stage as PipelineStage);
         break;
@@ -279,6 +309,197 @@ export function ChatPanel() {
         break;
     }
   }
+
+  // --- Voice recording ---
+
+  const stopRecordingTimer = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    setRecordingDuration(0);
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        stopRecordingTimer();
+
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size < 1000) {
+          toast.warning("Recording too short — please try again");
+          return;
+        }
+
+        await handleVoiceInput(blob);
+      };
+
+      recorder.start(250);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((d) => d + 1);
+      }, 1000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Microphone access denied";
+      toast.error(msg.includes("NotAllowedError") || msg.includes("Permission")
+        ? "Microphone permission denied. Please allow microphone access in your browser settings."
+        : `Microphone error: ${msg}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopRecordingTimer]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
+
+  const handleVoiceInput = useCallback(async (audioBlob: Blob) => {
+    setIsTranscribing(true);
+    setIsLoading(true);
+    setCurrentStage("transcription");
+
+    const placeholderMsg: ChatMessageType = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: "...",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, placeholderMsg]);
+
+    try {
+      const result = await transcribeAudio(audioBlob);
+      setIsTranscribing(false);
+
+      if (!result.text.trim()) {
+        toast.warning("Could not detect any speech — please try again");
+        setMessages((prev) => prev.filter((m) => m.id !== placeholderMsg.id));
+        setIsLoading(false);
+        setCurrentStage(null);
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === placeholderMsg.id ? { ...m, content: result.text } : m
+        )
+      );
+
+      const query = result.text;
+      const sourceLang = result.detected_language;
+
+      setCurrentStage("brain");
+
+      if (mode === "orchestrator-ws" && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "query",
+            user_id: userId,
+            query,
+            conversation_id: conversationId,
+            include_audio: includeAudio,
+            include_video: includeVideo,
+            source_language: sourceLang,
+          }),
+        );
+      } else {
+        try {
+          const response = await orchestrate({
+            user_id: userId,
+            query,
+            conversation_id: conversationId,
+            include_audio: includeAudio,
+            include_video: includeVideo,
+            source_language: sourceLang,
+          });
+
+          if (!conversationId) setConversationId(response.conversation_id);
+
+          const assistantMsg: ChatMessageType = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: response.response_text,
+            audio_base64: response.audio_base64,
+            video_base64: response.video_base64,
+            sources: response.sources,
+            latency_ms: response.total_latency_ms,
+            timestamp: new Date(),
+            stage: "complete",
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        } catch {
+          toast.warning("Orchestrator unavailable — sending directly to Brain");
+          const response = await sendChatMessage({
+            user_id: userId,
+            query,
+            conversation_id: conversationId,
+            include_sources: true,
+            include_audio: includeAudio,
+            include_video: includeVideo,
+          });
+
+          if (!conversationId) setConversationId(response.conversation_id);
+
+          const assistantMsg: ChatMessageType = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: response.response,
+            audio_base64: response.audio_base64,
+            video_base64: response.video_base64,
+            sources: response.sources,
+            latency_ms: response.latency_ms,
+            model_used: response.model_used,
+            timestamp: new Date(),
+            stage: "complete",
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        }
+        setIsLoading(false);
+        setCurrentStage(null);
+      }
+    } catch (err) {
+      setIsTranscribing(false);
+      setIsLoading(false);
+      setCurrentStage(null);
+      const errorMsg = err instanceof Error ? err.message : "Transcription failed";
+      toast.error(errorMsg);
+      setMessages((prev) => prev.filter((m) => m.id !== placeholderMsg.id));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, conversationId, includeAudio, includeVideo, mode]);
+
+  // Clean up recording on unmount
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      stopRecordingTimer();
+    };
+  }, [stopRecordingTimer]);
 
   // --- Send via WebSocket ---
 
@@ -616,19 +837,45 @@ export function ChatPanel() {
       {/* Input */}
       <div className="border-t bg-background p-4">
         <div className="mx-auto flex max-w-3xl items-end gap-3">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your data..."
-            rows={1}
-            disabled={isLoading}
-            className="flex-1 resize-none rounded-lg border bg-background px-4 py-2.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 min-h-[40px] max-h-[160px]"
-            style={{ fieldSizing: "content" } as React.CSSProperties}
-          />
+          {isRecording ? (
+            <div className="flex flex-1 items-center gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 px-4 py-2.5">
+              <span className="relative flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+              </span>
+              <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                Recording... {recordingDuration}s
+              </span>
+            </div>
+          ) : (
+            <textarea
+              value={isTranscribing ? "Transcribing..." : input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask a question or click the mic to speak..."
+              rows={1}
+              disabled={isLoading || isTranscribing}
+              className="flex-1 resize-none rounded-lg border bg-background px-4 py-2.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 min-h-[40px] max-h-[160px]"
+              style={{ fieldSizing: "content" } as React.CSSProperties}
+            />
+          )}
+          <Button
+            type="button"
+            variant={isRecording ? "destructive" : "outline"}
+            size="lg"
+            onClick={toggleRecording}
+            disabled={isLoading && !isRecording}
+            title={isRecording ? "Stop recording" : "Start voice input"}
+          >
+            {isRecording ? (
+              <MicOff className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </Button>
           <Button
             onClick={handleSend}
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || isRecording || !input.trim()}
             size="lg"
           >
             {isLoading ? (

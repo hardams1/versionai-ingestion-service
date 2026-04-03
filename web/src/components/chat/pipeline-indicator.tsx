@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Volume2, Video, Loader2, CheckCircle2 } from "lucide-react";
+import { Brain, Mic, Volume2, Video, Loader2, CheckCircle2 } from "lucide-react";
 import type { PipelineStage } from "@/lib/types";
 
 const STAGES: {
@@ -8,6 +8,7 @@ const STAGES: {
   label: string;
   icon: typeof Brain;
 }[] = [
+  { key: "transcription", label: "Transcribing", icon: Mic },
   { key: "brain", label: "Thinking", icon: Brain },
   { key: "voice", label: "Generating audio", icon: Volume2 },
   { key: "video", label: "Rendering video", icon: Video },

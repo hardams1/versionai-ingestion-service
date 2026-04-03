@@ -13,6 +13,8 @@ from app.utils.exceptions import BrainServiceError, OrchestratorError
 if TYPE_CHECKING:
     from app.services.brain_client import BrainClient
     from app.services.settings_client import SettingsClient
+    from app.services.social_client import SocialGraphClient
+    from app.services.stt_client import STTClient
     from app.services.video_client import VideoClient
     from app.services.voice_client import VoiceClient
     from app.services.voice_training_client import VoiceTrainingClient
@@ -38,12 +40,16 @@ class OrchestrationPipeline:
         video: VideoClient,
         settings_client: SettingsClient | None = None,
         voice_training_client: VoiceTrainingClient | None = None,
+        stt_client: STTClient | None = None,
+        social_client: SocialGraphClient | None = None,
     ) -> None:
         self._brain = brain
         self._voice = voice
         self._video = video
         self._settings_client = settings_client
         self._lang_client = voice_training_client
+        self._stt = stt_client
+        self._social = social_client
 
     async def _resolve_output_flags(
         self, user_id: str, include_audio: bool, include_video: bool
@@ -104,6 +110,24 @@ class OrchestrationPipeline:
         logger.info("Translated response en→%s", target_lang)
         return translated
 
+    async def _check_social_access(self, requester_id: str, target_user_id: str | None) -> None:
+        """Check AI access and rate limits via Social Graph Service. Raises on deny."""
+        if not target_user_id or not self._social:
+            return
+        if requester_id == target_user_id:
+            return
+        result = await self._social.check_access(requester_id, target_user_id)
+        if not result.allowed:
+            raise OrchestratorError(result.reason, code="access_denied")
+
+    async def _transcribe_audio(self, audio_bytes: bytes, filename: str = "audio.webm") -> tuple[str, str]:
+        """Transcribe audio via STT service. Returns (text, detected_language)."""
+        if not self._stt:
+            raise OrchestratorError("STT service not configured", code="stt_unavailable")
+        result = await self._stt.transcribe(audio_bytes, filename)
+        query = result.translated_text if result.translated_text else result.text
+        return query, result.detected_language
+
     async def run(
         self,
         user_id: str,
@@ -111,6 +135,7 @@ class OrchestrationPipeline:
         *,
         conversation_id: str | None = None,
         personality_id: str | None = None,
+        target_user_id: str | None = None,
         include_audio: bool = True,
         include_video: bool = True,
         audio_format: str = "mp3",
@@ -123,6 +148,8 @@ class OrchestrationPipeline:
         rid = request_id or str(uuid.uuid4())
         result = PipelineResult(request_id=rid)
         pipeline_start = time.perf_counter()
+
+        await self._check_social_access(user_id, target_user_id)
 
         include_audio, include_video = await self._resolve_output_flags(
             user_id, include_audio, include_video,
@@ -193,6 +220,7 @@ class OrchestrationPipeline:
         *,
         conversation_id: str | None = None,
         personality_id: str | None = None,
+        target_user_id: str | None = None,
         include_audio: bool = True,
         include_video: bool = True,
         audio_format: str = "mp3",
@@ -204,6 +232,8 @@ class OrchestrationPipeline:
         """Execute the pipeline and yield WebSocket messages as each stage completes."""
         rid = request_id or str(uuid.uuid4())
         pipeline_start = time.perf_counter()
+
+        await self._check_social_access(user_id, target_user_id)
 
         include_audio, include_video = await self._resolve_output_flags(
             user_id, include_audio, include_video,
@@ -330,3 +360,98 @@ class OrchestrationPipeline:
             request_id=rid,
             data={"total_latency_ms": total_ms, "stage": PipelineStage.COMPLETE.value},
         )
+
+    # ------------------------------------------------------------------
+    # Audio-input variants: transcribe first, then delegate to text flow
+    # ------------------------------------------------------------------
+
+    async def run_with_audio(
+        self,
+        user_id: str,
+        audio_bytes: bytes,
+        *,
+        conversation_id: str | None = None,
+        personality_id: str | None = None,
+        include_audio: bool = True,
+        include_video: bool = True,
+        audio_format: str = "mp3",
+        video_format: str = "mp4",
+        request_id: str | None = None,
+        target_language: str | None = None,
+    ) -> PipelineResult:
+        """Transcribe audio then run the standard text pipeline."""
+        rid = request_id or str(uuid.uuid4())
+        t0 = time.perf_counter()
+
+        query, detected_lang = await self._transcribe_audio(audio_bytes)
+        stt_ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.info("STT done in %.0fms: lang=%s, len=%d", stt_ms, detected_lang, len(query))
+
+        result = await self.run(
+            user_id=user_id,
+            query=query,
+            conversation_id=conversation_id,
+            personality_id=personality_id,
+            include_audio=include_audio,
+            include_video=include_video,
+            audio_format=audio_format,
+            video_format=video_format,
+            request_id=rid,
+            source_language=detected_lang,
+            target_language=target_language,
+        )
+        result.transcribed_text = query
+        result.stt_latency_ms = stt_ms
+        return result
+
+    async def run_streaming_with_audio(
+        self,
+        user_id: str,
+        audio_bytes: bytes,
+        *,
+        conversation_id: str | None = None,
+        personality_id: str | None = None,
+        include_audio: bool = True,
+        include_video: bool = True,
+        audio_format: str = "mp3",
+        video_format: str = "mp4",
+        request_id: str | None = None,
+        target_language: str | None = None,
+    ) -> AsyncIterator[WSOutgoingMessage]:
+        """Transcribe audio then stream the standard text pipeline."""
+        rid = request_id or str(uuid.uuid4())
+        t0 = time.perf_counter()
+
+        yield WSOutgoingMessage(
+            type=MessageType.STAGE,
+            request_id=rid,
+            data={"stage": PipelineStage.TRANSCRIPTION.value},
+        )
+
+        query, detected_lang = await self._transcribe_audio(audio_bytes)
+        stt_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+        yield WSOutgoingMessage(
+            type=MessageType.TRANSCRIPTION,
+            request_id=rid,
+            data={
+                "text": query,
+                "detected_language": detected_lang,
+                "stt_latency_ms": stt_ms,
+            },
+        )
+
+        async for msg in self.run_streaming(
+            user_id=user_id,
+            query=query,
+            conversation_id=conversation_id,
+            personality_id=personality_id,
+            include_audio=include_audio,
+            include_video=include_video,
+            audio_format=audio_format,
+            video_format=video_format,
+            request_id=rid,
+            source_language=detected_lang,
+            target_language=target_language,
+        ):
+            yield msg

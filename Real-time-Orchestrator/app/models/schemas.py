@@ -16,6 +16,8 @@ class WSIncomingMessage(BaseModel):
     type: MessageType
     user_id: str | None = None
     query: str | None = None
+    audio_base64: str | None = Field(default=None, description="Base64-encoded audio for voice input")
+    target_user_id: str | None = Field(default=None, description="Whose AI to interact with (social AI)")
     conversation_id: str | None = None
     personality_id: str | None = None
     include_audio: bool = Field(default=True)
@@ -42,6 +44,7 @@ class OrchestrateRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=10000)
     conversation_id: str | None = None
     personality_id: str | None = None
+    target_user_id: str | None = Field(default=None, description="Whose AI to interact with (social AI)")
     include_audio: bool = Field(default=True, description="Generate TTS audio")
     include_video: bool = Field(default=True, description="Generate lip-sync video")
     audio_format: str = "mp3"
@@ -50,10 +53,23 @@ class OrchestrateRequest(BaseModel):
     target_language: str | None = Field(default=None, description="Override output language")
 
 
+class OrchestrateAudioRequest(BaseModel):
+    """Response schema for the audio orchestrate endpoint."""
+    user_id: str = Field(..., min_length=1)
+    conversation_id: str | None = None
+    personality_id: str | None = None
+    include_audio: bool = Field(default=True)
+    include_video: bool = Field(default=True)
+    audio_format: str = "mp3"
+    video_format: str = "mp4"
+    target_language: str | None = None
+
+
 class OrchestrateResponse(BaseModel):
     request_id: str
     conversation_id: str
     response_text: str
+    transcribed_text: str | None = None
     sources: list[dict] = Field(default_factory=list)
     audio_base64: str | None = None
     video_base64: str | None = None
@@ -99,10 +115,12 @@ class PipelineResult(BaseModel):
     request_id: str
     conversation_id: str = ""
     response_text: str = ""
+    transcribed_text: str | None = None
     sources: list[dict] = Field(default_factory=list)
     model_used: str = ""
     audio_base64: str | None = None
     video_base64: str | None = None
+    stt_latency_ms: float = 0.0
     brain_latency_ms: float = 0.0
     voice_latency_ms: float = 0.0
     video_latency_ms: float = 0.0

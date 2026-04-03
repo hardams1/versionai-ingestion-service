@@ -42,6 +42,14 @@ class Settings(BaseSettings):
         default="http://localhost:8008",
         description="Voice Training Service (language detection, translation, voice cloning)",
     )
+    stt_service_url: str = Field(
+        default="http://localhost:8009",
+        description="Speech-to-Text Service (Whisper transcription)",
+    )
+    social_graph_service_url: str = Field(
+        default="http://localhost:8010",
+        description="Social Graph Service (follow, access control, rate limiting)",
+    )
 
     # --- Timeouts (seconds) ---
     brain_timeout: float = Field(default=30.0, description="Timeout for Brain chat call")

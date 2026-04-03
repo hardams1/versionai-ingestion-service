@@ -12,6 +12,7 @@ class SessionState(str, Enum):
 
 class PipelineStage(str, Enum):
     RECEIVED = "received"
+    TRANSCRIPTION = "transcription"
     BRAIN = "brain"
     VOICE = "voice"
     VIDEO = "video"
@@ -24,10 +25,12 @@ class MessageType(str, Enum):
 
     # Client → Server
     QUERY = "query"
+    AUDIO_QUERY = "audio_query"
     PING = "ping"
 
     # Server → Client
     ACK = "ack"
+    TRANSCRIPTION = "transcription"
     TEXT = "text"
     AUDIO = "audio"
     VIDEO = "video"

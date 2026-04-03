@@ -118,6 +118,7 @@ export interface ChatHistoryMessage {
 
 export type PipelineStage =
   | "received"
+  | "transcription"
   | "brain"
   | "voice"
   | "video"
@@ -126,8 +127,10 @@ export type PipelineStage =
 
 export type WSMessageType =
   | "query"
+  | "audio_query"
   | "ping"
   | "ack"
+  | "transcription"
   | "text"
   | "audio"
   | "video"
@@ -135,6 +138,18 @@ export type WSMessageType =
   | "complete"
   | "error"
   | "pong";
+
+// ---------------------------------------------------------------------------
+// Speech-to-Text
+// ---------------------------------------------------------------------------
+
+export interface TranscriptionResponse {
+  text: string;
+  detected_language: string;
+  confidence: number;
+  translated_text: string | null;
+  duration_seconds: number;
+}
 
 export interface WSOutgoingMessage {
   type: WSMessageType;
@@ -152,6 +167,7 @@ export interface OrchestrateRequest {
   include_video?: boolean;
   audio_format?: string;
   video_format?: string;
+  source_language?: string;
 }
 
 export interface StageResult {
@@ -164,6 +180,7 @@ export interface OrchestrateResponse {
   request_id: string;
   conversation_id: string;
   response_text: string;
+  transcribed_text?: string | null;
   sources: SourceChunk[];
   audio_base64?: string | null;
   video_base64?: string | null;
