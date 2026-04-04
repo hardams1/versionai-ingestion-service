@@ -38,7 +38,7 @@ const ACCESS_BADGES: Record<string, { label: string; icon: typeof Globe; classNa
 export default function ProfilePage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const userId = params.userId as string;
 
   const [profile, setProfile] = useState<SocialProfile | null>(null);
@@ -75,9 +75,10 @@ export default function ProfilePage() {
   }, [userId]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     loadProfile();
     loadConnections();
-  }, [loadProfile, loadConnections]);
+  }, [user, authLoading, loadProfile, loadConnections]);
 
   const handleFollow = async () => {
     if (!profile) return;

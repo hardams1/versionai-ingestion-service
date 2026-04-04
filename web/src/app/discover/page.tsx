@@ -80,7 +80,7 @@ function UserCard({ user, onClick }: { user: SearchResult; onClick: () => void }
 }
 
 export default function DiscoverPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
   const [tab, setTab] = useState<Tab>("suggested");
@@ -126,10 +126,11 @@ export default function DiscoverPage() {
   }, [query]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     if (tab === "suggested") loadSuggested();
     else if (tab === "trending") loadTrending();
     else setResults([]);
-  }, [tab, loadSuggested, loadTrending]);
+  }, [tab, user, authLoading, loadSuggested, loadTrending]);
 
   const TABS: { key: Tab; label: string; icon: typeof Users }[] = [
     { key: "search", label: "Search", icon: Search },

@@ -11,6 +11,7 @@ import {
 import { useRouter, usePathname } from "next/navigation";
 import {
   type AuthUser,
+  apiGetMe,
   apiLogin,
   apiSignup,
   clearAuth,
@@ -40,10 +41,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = getToken();
     const stored = getAuthUser();
-    if (token && stored) {
-      setUser(stored);
+    if (!token || !stored) {
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    // Optimistically set user from cache, then validate token with server
+    setUser(stored);
+
+    apiGetMe()
+      .then((fresh) => {
+        const authUser: AuthUser = {
+          user_id: fresh.user_id,
+          username: fresh.username,
+          onboarding_completed: fresh.onboarding_completed,
+        };
+        saveAuth(token, authUser);
+        setUser(authUser);
+      })
+      .catch(() => {
+        // Token is expired or invalid — clear stale auth
+        clearAuth();
+        setUser(null);
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
   useEffect(() => {
