@@ -5,6 +5,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+import httpx
+
 from app.models.schemas import ChatRequest, ChatResponse
 from app.models.enums import SafetyVerdict
 from app.services.embedder import BaseQueryEmbedder
@@ -55,6 +57,28 @@ class BrainOrchestrator:
         self._personality_engine = personality_engine
         self._media = media_client
 
+    async def _fetch_faq_context(self, user_id: str) -> str:
+        feedback_url = self._settings.feedback_service_url
+        if not feedback_url:
+            return ""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{feedback_url}/faq/answered",
+                    params={"owner_user_id": user_id},
+                )
+                if resp.status_code != 200:
+                    return ""
+                data = resp.json()
+                items = data.get("items", [])
+                if not items:
+                    return ""
+                lines = [f"- {item['category']}: {item['answer_text']}" for item in items]
+                return "\n".join(lines)
+        except Exception as exc:
+            logger.debug("FAQ fetch failed (non-fatal): %s", exc)
+            return ""
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
         start = time.perf_counter()
 
@@ -86,12 +110,15 @@ class BrainOrchestrator:
 
         history = await self._memory.get_history(conversation.conversation_id)
 
+        faq_context = await self._fetch_faq_context(request.user_id)
+
         messages = self._prompt_builder.build(
             query=request.query,
             context_chunks=context_chunks,
             conversation_history=history,
             personality=personality,
             identity_context=identity_context,
+            faq_context=faq_context,
         )
 
         llm_response = await self._llm.generate(messages)

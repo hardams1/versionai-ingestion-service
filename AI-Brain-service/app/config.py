@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     voice_service_url: str | None = Field(default=None, description="e.g. http://localhost:8003")
     video_avatar_service_url: str | None = Field(default=None, description="e.g. http://localhost:8004")
     auth_service_url: str | None = Field(default="http://localhost:8006", description="Auth service for onboarding profiles")
+    feedback_service_url: str | None = Field(default="http://localhost:8011", description="Feedback Intelligence Service for FAQ answers")
 
     # --- Security ---
     api_key: str | None = None

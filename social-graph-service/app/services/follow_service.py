@@ -153,11 +153,13 @@ async def get_following(db: AsyncSession, user_id: str, limit: int = 50, offset:
 
 async def get_pending_requests(db: AsyncSession, target_id: str):
     result = await db.execute(
-        select(FollowRequest)
+        select(FollowRequest, SocialProfile)
+        .outerjoin(SocialProfile, SocialProfile.user_id == FollowRequest.requester_id)
         .where(and_(FollowRequest.target_id == target_id, FollowRequest.status == "pending"))
         .order_by(FollowRequest.created_at.desc())
     )
-    return result.scalars().all()
+    rows = result.all()
+    return [(req, profile) for req, profile in rows]
 
 
 async def is_following(db: AsyncSession, follower_id: str, following_id: str) -> bool:

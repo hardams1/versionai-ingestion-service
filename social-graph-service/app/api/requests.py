@@ -24,15 +24,18 @@ async def list_pending_requests(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    reqs = await get_pending_requests(db, user["user_id"])
+    rows = await get_pending_requests(db, user["user_id"])
     items = [
         FollowRequestItem(
-            id=r.id,
-            requester_id=r.requester_id,
-            status=r.status,
-            created_at=r.created_at.isoformat() if r.created_at else "",
+            id=req.id,
+            requester_id=req.requester_id,
+            username=profile.username if profile else None,
+            full_name=profile.full_name if profile else None,
+            image_url=profile.image_url if profile else None,
+            status=req.status,
+            created_at=req.created_at.isoformat() if req.created_at else "",
         )
-        for r in reqs
+        for req, profile in rows
     ]
     return FollowRequestListResponse(items=items, total=len(items))
 

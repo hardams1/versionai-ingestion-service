@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/ingest", label: "Ingest", icon: Upload },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/discover", label: "Discover", icon: Compass },
+  { href: "/me", label: "My Profile", icon: User },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -53,10 +54,15 @@ export function NavHeader() {
 
         {user && (
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <User className="h-3.5 w-3.5" />
+            <Link
+              href="/me"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                {(user.username?.[0] ?? "?").toUpperCase()}
+              </div>
               <span>{user.username}</span>
-            </div>
+            </Link>
             <Button variant="ghost" size="icon-sm" onClick={logout} title="Sign out">
               <LogOut className="h-3.5 w-3.5" />
             </Button>

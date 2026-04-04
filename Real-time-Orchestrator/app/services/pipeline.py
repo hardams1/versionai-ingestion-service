@@ -12,6 +12,7 @@ from app.utils.exceptions import BrainServiceError, OrchestratorError
 
 if TYPE_CHECKING:
     from app.services.brain_client import BrainClient
+    from app.services.feedback_client import FeedbackClient
     from app.services.settings_client import SettingsClient
     from app.services.social_client import SocialGraphClient
     from app.services.stt_client import STTClient
@@ -42,6 +43,7 @@ class OrchestrationPipeline:
         voice_training_client: VoiceTrainingClient | None = None,
         stt_client: STTClient | None = None,
         social_client: SocialGraphClient | None = None,
+        feedback_client: FeedbackClient | None = None,
     ) -> None:
         self._brain = brain
         self._voice = voice
@@ -50,6 +52,7 @@ class OrchestrationPipeline:
         self._lang_client = voice_training_client
         self._stt = stt_client
         self._social = social_client
+        self._feedback = feedback_client
 
     async def _resolve_output_flags(
         self, user_id: str, include_audio: bool, include_video: bool
@@ -181,6 +184,16 @@ class OrchestrationPipeline:
             result.total_latency_ms = (time.perf_counter() - pipeline_start) * 1000
             return result
 
+        if target_user_id and self._feedback:
+            asyncio.ensure_future(
+                self._feedback.capture_question(
+                    target_user_id=target_user_id,
+                    asker_user_id=user_id,
+                    question=english_query,
+                    session_id=conversation_id,
+                )
+            )
+
         if include_audio and result.response_text:
             try:
                 audio_b64, audio_bytes, voice_lat = await self._voice.synthesize_b64(
@@ -277,6 +290,16 @@ class OrchestrationPipeline:
 
         english_response = brain_data.get("response", "")
         response_text = await self._translate_response(english_response, target_lang)
+
+        if target_user_id and self._feedback:
+            asyncio.ensure_future(
+                self._feedback.capture_question(
+                    target_user_id=target_user_id,
+                    asker_user_id=user_id,
+                    question=english_query,
+                    session_id=conversation_id,
+                )
+            )
 
         yield WSOutgoingMessage(
             type=MessageType.TEXT,

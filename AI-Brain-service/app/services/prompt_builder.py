@@ -88,6 +88,7 @@ class PromptBuilder:
         conversation_history: list[ChatMessage],
         personality: PersonalityConfig | None = None,
         identity_context: str = "",
+        faq_context: str = "",
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
 
@@ -95,6 +96,7 @@ class PromptBuilder:
             personality=personality,
             identity_context=identity_context,
             context_chunks=context_chunks,
+            faq_context=faq_context,
         )
 
         messages.append({"role": "system", "content": system_prompt})
@@ -118,11 +120,15 @@ class PromptBuilder:
         personality: PersonalityConfig | None,
         identity_context: str,
         context_chunks: list[SourceChunk],
+        faq_context: str = "",
     ) -> str:
         grounding_section = GROUNDING_SECTION
         if context_chunks:
             context_text = self._format_context(context_chunks)
             grounding_section += f"\n\n--- RETRIEVED CONTEXT ---\n{context_text}\n--- END CONTEXT ---"
+
+        if faq_context:
+            grounding_section += f"\n\n--- FREQUENTLY ASKED QUESTIONS YOU HAVE ANSWERED ---\n{faq_context}\n--- END FAQ ---\nUse these answered FAQs to provide consistent, authoritative responses when people ask about these topics."
 
         if identity_context:
             personality_section = ""

@@ -50,6 +50,10 @@ class Settings(BaseSettings):
         default="http://localhost:8010",
         description="Social Graph Service (follow, access control, rate limiting)",
     )
+    feedback_service_url: str = Field(
+        default="http://localhost:8011",
+        description="Feedback Intelligence Service (question capture, FAQ)",
+    )
 
     # --- Timeouts (seconds) ---
     brain_timeout: float = Field(default=30.0, description="Timeout for Brain chat call")

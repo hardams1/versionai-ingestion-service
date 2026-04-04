@@ -1,5 +1,6 @@
 import { UploadPanel } from "@/components/upload/upload-panel";
 import { ServiceStatus } from "@/components/upload/service-status";
+import { FaqSection } from "@/components/faq/faq-section";
 import { Separator } from "@/components/ui/separator";
 import { NavHeader } from "@/components/layout/nav-header";
 
@@ -22,6 +23,10 @@ export default function IngestPage() {
           </div>
 
           <UploadPanel />
+
+          <Separator className="my-10" />
+
+          <FaqSection />
 
           <Separator className="my-10" />
 

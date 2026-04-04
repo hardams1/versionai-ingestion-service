@@ -7,6 +7,7 @@ from fastapi.security import APIKeyHeader
 
 from app.config import Settings, get_settings
 from app.services.brain_client import BrainClient
+from app.services.feedback_client import FeedbackClient
 from app.services.pipeline import OrchestrationPipeline
 from app.services.session import SessionManager
 from app.services.settings_client import SettingsClient
@@ -71,6 +72,12 @@ def get_social_client() -> SocialGraphClient:
 
 
 @lru_cache
+def get_feedback_client() -> FeedbackClient:
+    s = get_settings()
+    return FeedbackClient(base_url=s.feedback_service_url)
+
+
+@lru_cache
 def get_pipeline() -> OrchestrationPipeline:
     return OrchestrationPipeline(
         brain=get_brain_client(),
@@ -80,6 +87,7 @@ def get_pipeline() -> OrchestrationPipeline:
         voice_training_client=get_voice_training_client(),
         stt_client=get_stt_client(),
         social_client=get_social_client(),
+        feedback_client=get_feedback_client(),
     )
 
 
