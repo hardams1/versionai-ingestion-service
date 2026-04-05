@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Upload, MessageSquare, LogOut, User, Settings, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
@@ -53,7 +54,8 @@ export function NavHeader() {
         </div>
 
         {user && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <NotificationBell />
             <Link
               href="/me"
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"

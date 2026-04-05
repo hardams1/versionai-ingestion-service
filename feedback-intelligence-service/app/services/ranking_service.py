@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+import httpx
 import redis.asyncio as aioredis
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,20 @@ from app.models.category_stats import CategoryStats
 from app.models.resolved_category import ResolvedCategory
 
 logger = logging.getLogger(__name__)
+
+NOTIFICATION_URL = "http://localhost:8013/api/v1/events/emit"
+
+
+async def _emit_faq_event(owner_user_id: str, category: str, question_count: int) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(NOTIFICATION_URL, json={
+                "event_type": "faq_category_updated",
+                "user_id": owner_user_id,
+                "payload": {"category": category, "question_count": question_count},
+            })
+    except Exception:
+        logger.debug("Notification emit failed for faq_category_updated (non-critical)")
 
 
 class RankingService:
@@ -63,6 +79,8 @@ class RankingService:
 
         await db.commit()
         await self._invalidate_cache(owner_user_id)
+        count = stats.question_count
+        asyncio.create_task(_emit_faq_event(owner_user_id, category, count))
 
     async def get_ranked_categories(
         self, db: AsyncSession, owner_user_id: str

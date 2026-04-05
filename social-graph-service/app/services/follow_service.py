@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
+import httpx
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,21 @@ from app.models.follow_request import FollowRequest
 from app.models.social_profile import SocialProfile
 
 logger = logging.getLogger(__name__)
+
+NOTIFICATION_URL = "http://localhost:8013/api/v1/events/emit"
+
+
+async def _emit_notification(event_type: str, user_id: str, payload: dict | None = None) -> None:
+    """Fire-and-forget event emission to the notification service."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(NOTIFICATION_URL, json={
+                "event_type": event_type,
+                "user_id": user_id,
+                "payload": payload or {},
+            })
+    except Exception:
+        logger.debug("Notification emit failed for %s (non-critical)", event_type)
 
 
 async def ensure_profile(db: AsyncSession, user_id: str, username: Optional[str] = None) -> SocialProfile:
@@ -68,6 +85,7 @@ async def follow_user(db: AsyncSession, follower_id: str, target_id: str) -> dic
         req = FollowRequest(requester_id=follower_id, target_id=target_id, status="pending")
         db.add(req)
         await db.commit()
+        asyncio.create_task(_emit_notification("follow_request", target_id, {"username": follower_id}))
         return {"status": "requested", "message": "Follow request sent"}
 
     return await _create_follow(db, follower_id, target_id)
@@ -102,6 +120,7 @@ async def accept_request(db: AsyncSession, request_id: str, target_id: str) -> d
     req.status = "accepted"
     resp = await _create_follow(db, req.requester_id, req.target_id)
     await db.commit()
+    asyncio.create_task(_emit_notification("follow_accepted", req.requester_id, {"username": target_id}))
     return resp
 
 
@@ -116,6 +135,7 @@ async def reject_request(db: AsyncSession, request_id: str, target_id: str) -> d
         return {"status": "error", "message": "Request not found or already handled"}
     req.status = "rejected"
     await db.commit()
+    asyncio.create_task(_emit_notification("follow_rejected", req.requester_id, {"username": target_id}))
     return {"status": "rejected", "message": "Follow request rejected"}
 
 
@@ -190,6 +210,7 @@ async def _create_follow(db: AsyncSession, follower_id: str, following_id: str) 
     db.add(Follow(follower_id=follower_id, following_id=following_id))
     await _update_counts(db, follower_id, following_id, delta=1)
     await db.commit()
+    asyncio.create_task(_emit_notification("new_follower", following_id, {"username": follower_id}))
     return {"status": "following", "message": "Now following"}
 
 

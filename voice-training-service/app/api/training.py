@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -27,6 +28,22 @@ from app.services.voice_cloner import VoiceCloner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voice", tags=["voice-training"])
+
+NOTIFICATION_URL = "http://localhost:8013/api/v1/events/emit"
+
+
+async def _emit_voice_event(event_type: str, user_id: str) -> None:
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(NOTIFICATION_URL, json={
+                "event_type": event_type,
+                "user_id": user_id,
+                "payload": {},
+                "idempotency_key": f"{event_type}-{user_id}-{uuid.uuid4().hex[:8]}",
+            })
+    except Exception:
+        logger.debug("Notification emit failed for %s (non-critical)", event_type)
 
 audio_processor = AudioProcessor()
 feature_extractor = FeatureExtractor()
@@ -169,6 +186,7 @@ async def clone_voice(
             logger.warning("Failed to sync voice profile: %s", e)
 
         await db.commit()
+        asyncio.create_task(_emit_voice_event("ai_voice_model_updated", user_id))
 
         quality_note = ""
         if profile.total_duration_seconds < 120:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -17,6 +18,21 @@ from app.models.social_content import SocialContent
 from app.services.normalization_service import compute_writing_style
 
 logger = logging.getLogger(__name__)
+
+NOTIFICATION_URL = "http://localhost:8013/api/v1/events/emit"
+
+
+async def _emit_ai_event(event_type: str, user_id: str, platform: str, count: int) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(NOTIFICATION_URL, json={
+                "event_type": event_type,
+                "user_id": user_id,
+                "payload": {"source": "social", "platform": platform, "items_count": count},
+                "idempotency_key": f"{event_type}-{user_id}-{platform}-{datetime.now(timezone.utc).strftime('%Y%m%d%H')}",
+            })
+    except Exception:
+        logger.debug("Notification emit failed for %s (non-critical)", event_type)
 
 INGESTION_STORAGE_DIR = Path(__file__).resolve().parents[3] / "ingestion-service" / "storage"
 
@@ -95,6 +111,7 @@ async def _push_to_embedding(db: AsyncSession, user_id: str, platform: str) -> i
                 for item in items:
                     item.embedded = 1
                 await db.commit()
+                asyncio.create_task(_emit_ai_event("ai_personality_updated", user_id, platform, len(items)))
                 logger.info(
                     "Pushed %d %s items to embedding pipeline for user %s (status=%d)",
                     len(items), platform, user_id, resp.status_code,
