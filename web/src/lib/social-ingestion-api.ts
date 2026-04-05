@@ -49,21 +49,43 @@ export async function fetchConnectedAccounts(): Promise<AccountStatus[]> {
   return data.accounts;
 }
 
-export async function connectPlatform(
-  platform: string,
-  accessToken: string,
-  platformUsername?: string,
-): Promise<void> {
-  const res = await authFetch(`${SOCIAL_INGEST_URL}/connect/${platform}`, {
-    method: "POST",
-    headers: bearerHeaders(true),
-    body: JSON.stringify({
-      platform,
-      access_token: accessToken,
-      platform_username: platformUsername,
-    }),
+export interface OAuthInitResult {
+  authorization_url: string;
+  state: string;
+}
+
+export async function initOAuth(platform: string): Promise<OAuthInitResult> {
+  const res = await authFetch(`${SOCIAL_INGEST_URL}/oauth/${platform}/init`, {
+    headers: bearerHeaders(),
   });
-  if (!res.ok) throw new Error("Failed to connect account");
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || "Failed to start authorization");
+  }
+  return res.json();
+}
+
+export interface OAuthCallbackResult {
+  platform: string;
+  platform_username: string | null;
+  status: string;
+}
+
+export async function exchangeOAuthCode(
+  code: string,
+  state: string,
+  platform: string,
+): Promise<OAuthCallbackResult> {
+  const res = await fetch(`${SOCIAL_INGEST_URL}/oauth/callback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, state, platform }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail || "Authorization failed");
+  }
+  return res.json();
 }
 
 export async function disconnectPlatform(platform: string): Promise<void> {

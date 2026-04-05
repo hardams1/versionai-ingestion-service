@@ -14,6 +14,32 @@ class BasePlatformClient(ABC):
 
     platform: str = ""
 
+    def has_oauth_keys(self) -> bool:
+        """Return True if real OAuth credentials are configured."""
+        return False
+
+    @abstractmethod
+    def get_oauth_url(
+        self, state: str, redirect_uri: str, code_challenge: Optional[str] = None
+    ) -> str:
+        """Build the platform's OAuth authorization URL.
+
+        The user's browser is redirected here so they can log in on the
+        real platform and grant VersionAI permission.
+        """
+        ...
+
+    @abstractmethod
+    async def exchange_code(
+        self, code: str, redirect_uri: str, code_verifier: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Exchange an authorization code for access/refresh tokens.
+
+        Returns dict with: access_token, refresh_token (optional),
+        username, user_id, expires_in (optional).
+        """
+        ...
+
     @abstractmethod
     async def fetch_user_content(
         self,
@@ -28,18 +54,6 @@ class BasePlatformClient(ABC):
     @abstractmethod
     async def verify_token(self, access_token: str) -> bool:
         """Check if the access token is still valid."""
-        ...
-
-    @abstractmethod
-    def get_oauth_url(self, state: str, redirect_uri: str) -> str:
-        """Generate the OAuth authorization URL."""
-        ...
-
-    @abstractmethod
-    async def exchange_code(
-        self, code: str, redirect_uri: str
-    ) -> Dict[str, Any]:
-        """Exchange an auth code for tokens. Returns dict with access_token, etc."""
         ...
 
     def _compute_engagement(

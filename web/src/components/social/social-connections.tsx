@@ -7,7 +7,6 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,10 +15,10 @@ import { Button } from "@/components/ui/button";
 import {
   type AccountStatus,
   checkSocialIngestionHealth,
-  connectPlatform,
   deletePlatformData,
   disconnectPlatform,
   fetchConnectedAccounts,
+  initOAuth,
   syncAll,
   syncPlatform,
 } from "@/lib/social-ingestion-api";
@@ -41,10 +40,7 @@ export function SocialConnections() {
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
-  const [connectModal, setConnectModal] = useState<string | null>(null);
-  const [tokenInput, setTokenInput] = useState("");
-  const [usernameInput, setUsernameInput] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const loadAccounts = useCallback(async () => {
@@ -70,22 +66,51 @@ export function SocialConnections() {
     loadAccounts();
   }, [user, authLoading, online, loadAccounts]);
 
-  const handleConnect = async () => {
-    if (!connectModal || !tokenInput.trim()) return;
-    setConnecting(true);
+  const handleConnect = useCallback(async (platform: string) => {
+    setConnecting(platform);
     try {
-      await connectPlatform(connectModal, tokenInput.trim(), usernameInput.trim() || undefined);
-      toast.success(`${PLATFORM_META[connectModal]?.label ?? connectModal} connected!`);
-      setConnectModal(null);
-      setTokenInput("");
-      setUsernameInput("");
-      await loadAccounts();
-    } catch {
-      toast.error("Failed to connect account");
-    } finally {
-      setConnecting(false);
+      const { authorization_url } = await initOAuth(platform);
+
+      const w = 500, h = 700;
+      const left = window.screenX + (window.outerWidth - w) / 2;
+      const top = window.screenY + (window.outerHeight - h) / 2;
+      const popup = window.open(
+        authorization_url,
+        `versionai_oauth_${platform}`,
+        `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,location=yes`
+      );
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === "versionai_oauth_complete") {
+          window.removeEventListener("message", onMessage);
+          setConnecting(null);
+          if (event.data.success) {
+            toast.success(`${PLATFORM_META[platform]?.label ?? platform} connected!`);
+            loadAccounts();
+          } else {
+            toast.error("Authorization was not completed");
+          }
+        }
+      };
+      window.addEventListener("message", onMessage);
+
+      const pollClosed = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(pollClosed);
+          setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            setConnecting(null);
+            loadAccounts();
+          }, 500);
+        }
+      }, 500);
+
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start authorization");
+      setConnecting(null);
     }
-  };
+  }, [loadAccounts]);
 
   const handleDisconnect = async (platform: string) => {
     try {
@@ -240,13 +265,15 @@ export function SocialConnections() {
                 ) : (
                   <Button
                     size="sm"
-                    onClick={() => {
-                      setConnectModal(account.platform);
-                      setTokenInput("");
-                      setUsernameInput("");
-                    }}
+                    disabled={connecting !== null}
+                    onClick={() => handleConnect(account.platform)}
                   >
-                    <Link2 className="h-3.5 w-3.5 mr-1" /> Connect
+                    {connecting === account.platform ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Link2 className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {connecting === account.platform ? "Authorizing..." : "Connect"}
                   </Button>
                 )}
               </div>
@@ -258,78 +285,6 @@ export function SocialConnections() {
       {loading && (
         <div className="flex justify-center py-6">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      )}
-
-      {/* Connect Modal */}
-      {connectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-xl mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold">
-                Connect {PLATFORM_META[connectModal]?.label ?? connectModal}
-              </h4>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setConnectModal(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <p className="text-sm text-muted-foreground mb-4">
-              Enter your access token from{" "}
-              {PLATFORM_META[connectModal]?.label ?? connectModal}&apos;s
-              developer portal. Your token is encrypted at rest and can be
-              revoked at any time.
-            </p>
-
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Access Token</label>
-                <input
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                  placeholder="Paste your access token"
-                  type="password"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  Username <span className="text-muted-foreground">(optional)</span>
-                </label>
-                <input
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                  placeholder="@yourusername"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-5">
-              <Button
-                variant="outline"
-                onClick={() => setConnectModal(null)}
-                disabled={connecting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConnect}
-                disabled={connecting || !tokenInput.trim()}
-              >
-                {connecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Connect
-              </Button>
-            </div>
-          </div>
         </div>
       )}
 

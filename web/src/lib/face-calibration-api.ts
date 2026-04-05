@@ -3,7 +3,7 @@ const AVATAR_SERVICE_URL =
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return localStorage.getItem("versionai_token");
 }
 
 async function avatarFetch(path: string, init?: RequestInit): Promise<Response> {

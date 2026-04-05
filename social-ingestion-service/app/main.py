@@ -50,9 +50,11 @@ app.add_middleware(
 
 from app.api.connect import router as connect_router
 from app.api.ingest import router as ingest_router
+from app.api.oauth import router as oauth_router
 
 app.include_router(connect_router)
 app.include_router(ingest_router)
+app.include_router(oauth_router)
 
 
 @app.get("/health")

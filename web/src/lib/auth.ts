@@ -125,7 +125,13 @@ export async function apiSubmitOnboarding(data: Record<string, unknown>): Promis
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(err.detail ?? "Onboarding submission failed");
+    let message = "Onboarding submission failed";
+    if (typeof err.detail === "string") {
+      message = err.detail;
+    } else if (Array.isArray(err.detail) && err.detail.length > 0) {
+      message = err.detail.map((e: { msg?: string }) => e.msg ?? "Validation error").join("; ");
+    }
+    throw new Error(message);
   }
   return res.json();
 }

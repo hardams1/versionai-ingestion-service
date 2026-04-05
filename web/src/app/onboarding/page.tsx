@@ -71,59 +71,111 @@ const initialFormData: FormData = {
   response_length: "",
 };
 
-function InputField({ label, id, value, onChange, placeholder, type = "text", required = false }: {
+function InputField({ label, id, value, onChange, placeholder, type = "text", error }: {
   label: string; id: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; required?: boolean;
+  placeholder?: string; type?: string; error?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      <label htmlFor={id} className="text-sm font-medium">
+        {label} <span className="text-destructive">*</span>
+      </label>
       <input
-        id={id} type={type} value={value} required={required}
+        id={id} type={type} value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30"
+        className={`flex h-9 w-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30 transition-colors ${
+          error ? "border-destructive focus:border-destructive focus:ring-destructive/30" : "border-input focus:border-ring"
+        }`}
       />
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
 
-function TextAreaField({ label, id, value, onChange, placeholder, rows = 3 }: {
+function TextAreaField({ label, id, value, onChange, placeholder, rows = 3, error }: {
   label: string; id: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; rows?: number;
+  placeholder?: string; rows?: number; error?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      <label htmlFor={id} className="text-sm font-medium">
+        {label} <span className="text-destructive">*</span>
+      </label>
       <textarea
         id={id} value={value} rows={rows}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30 resize-y"
+        className={`flex w-full rounded-md border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30 resize-y transition-colors ${
+          error ? "border-destructive focus:border-destructive focus:ring-destructive/30" : "border-input focus:border-ring"
+        }`}
       />
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
 
-function SelectField({ label, id, value, onChange, options }: {
+function SelectField({ label, id, value, onChange, options, error }: {
   label: string; id: string; value: string; onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string }[]; error?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      {label && (
+        <label htmlFor={id} className="text-sm font-medium">
+          {label} <span className="text-destructive">*</span>
+        </label>
+      )}
       <select
         id={id} value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+        className={`flex h-9 w-full rounded-md border bg-background px-3 py-1.5 text-sm shadow-xs outline-none focus:ring-2 focus:ring-ring/30 transition-colors ${
+          error ? "border-destructive focus:border-destructive focus:ring-destructive/30" : "border-input focus:border-ring"
+        }`}
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
+
+type FieldRule = { field: keyof FormData; label: string };
+
+const STEP_REQUIRED_FIELDS: Record<number, FieldRule[]> = {
+  0: [
+    { field: "full_name", label: "Full Name" },
+    { field: "age", label: "Age" },
+    { field: "gender", label: "Gender" },
+    { field: "location", label: "Location" },
+  ],
+  1: [
+    { field: "personality_description", label: "Personality description" },
+    { field: "introvert_extrovert", label: "Introvert/Extrovert preference" },
+    { field: "core_values", label: "Core values" },
+  ],
+  2: [
+    { field: "formality", label: "Communication formality" },
+    { field: "emotional_response_style", label: "Emotional response style" },
+  ],
+  3: [
+    { field: "key_life_events", label: "Key life events" },
+    { field: "career_background", label: "Career background" },
+    { field: "education", label: "Education" },
+  ],
+  4: [
+    { field: "views_money", label: "Views on money" },
+    { field: "views_relationships", label: "Views on relationships" },
+    { field: "views_success", label: "Views on success" },
+    { field: "philosophical_beliefs", label: "Philosophical or religious beliefs" },
+  ],
+  6: [
+    { field: "energy", label: "Voice energy" },
+    { field: "response_length", label: "Response length preference" },
+  ],
+};
 
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
@@ -139,6 +191,7 @@ export default function OnboardingPage() {
   const [trainingScript, setTrainingScript] = useState<TrainingScript | null>(null);
   const [voiceSamples, setVoiceSamples] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (step === 5) {
@@ -165,6 +218,7 @@ export default function OnboardingPage() {
       setAvatarPreview(dataUrl);
       const b64 = dataUrl.split(",")[1];
       setAvatarBase64(b64);
+      setFieldErrors((prev) => { const n = { ...prev }; delete n.__photo; return n; });
     };
     reader.readAsDataURL(file);
   }, []);
@@ -178,22 +232,62 @@ export default function OnboardingPage() {
   const update = useCallback(
     <K extends keyof FormData>(key: K, value: FormData[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }));
+      setFieldErrors((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
     },
     []
   );
 
-  const canContinue = useCallback(() => {
-    if (step === 0) return form.full_name.trim().length > 0;
+  const validateStep = useCallback(
+    (s: number): Record<string, string> => {
+      const errors: Record<string, string> = {};
+      const rules = STEP_REQUIRED_FIELDS[s];
+      if (rules) {
+        for (const { field, label } of rules) {
+          const v = form[field];
+          if (typeof v === "string" && v.trim() === "") {
+            errors[field] = `${label} is required`;
+          }
+        }
+      }
+      if (s === 0 && !avatarBase64) {
+        errors.__photo = "Photo is required for your AI video avatar";
+      }
+      if (s === 0 && form.age.trim() !== "") {
+        const n = parseInt(form.age, 10);
+        if (isNaN(n) || n < 1 || n > 150) {
+          errors.age = "Please enter a valid age between 1 and 150";
+        }
+      }
+      return errors;
+    },
+    [form, avatarBase64]
+  );
+
+  const tryAdvance = useCallback(() => {
+    const errors = validateStep(step);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstMsg = Object.values(errors)[0];
+      toast.error(firstMsg);
+      return false;
+    }
+    setFieldErrors({});
     return true;
-  }, [step, form.full_name]);
+  }, [step, validateStep]);
 
   async function handleSubmit() {
     setIsSubmitting(true);
     try {
+      const parsedAge = form.age ? parseInt(form.age, 10) : null;
       const payload = {
         basic_info: {
-          full_name: form.full_name,
-          age: form.age ? parseInt(form.age, 10) : null,
+          full_name: form.full_name.trim(),
+          age: parsedAge !== null && !isNaN(parsedAge) ? parsedAge : null,
           gender: form.gender || null,
           location: form.location || null,
         },
@@ -283,7 +377,9 @@ export default function OnboardingPage() {
             {step === 0 && (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Your Photo (used for AI video avatar)</label>
+                  <label className="text-sm font-medium">
+                    Your Photo (used for AI video avatar) <span className="text-destructive">*</span>
+                  </label>
                   <div className="flex items-center gap-4">
                     {avatarPreview ? (
                       <div className="relative">
@@ -304,9 +400,13 @@ export default function OnboardingPage() {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/30 hover:border-primary transition-colors"
+                        className={`flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed transition-colors ${
+                          fieldErrors.__photo
+                            ? "border-destructive hover:border-destructive/70"
+                            : "border-muted-foreground/30 hover:border-primary"
+                        }`}
                       >
-                        <Camera className="h-6 w-6 text-muted-foreground" />
+                        <Camera className={`h-6 w-6 ${fieldErrors.__photo ? "text-destructive" : "text-muted-foreground"}`} />
                       </button>
                     )}
                     <div className="flex-1 text-sm text-muted-foreground">
@@ -317,6 +417,7 @@ export default function OnboardingPage() {
                       )}
                     </div>
                   </div>
+                  {fieldErrors.__photo && <p className="text-xs text-destructive">{fieldErrors.__photo}</p>}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -325,35 +426,36 @@ export default function OnboardingPage() {
                     className="hidden"
                   />
                 </div>
-                <InputField label="Full Name" id="full_name" value={form.full_name} onChange={(v) => update("full_name", v)} placeholder="John Doe" required />
-                <InputField label="Age" id="age" value={form.age} onChange={(v) => update("age", v)} placeholder="28" type="number" />
-                <SelectField label="Gender (optional)" id="gender" value={form.gender} onChange={(v) => update("gender", v)} options={[
-                  { value: "", label: "Prefer not to say" },
+                <InputField label="Full Name" id="full_name" value={form.full_name} onChange={(v) => update("full_name", v)} placeholder="John Doe" error={fieldErrors.full_name} />
+                <InputField label="Age" id="age" value={form.age} onChange={(v) => update("age", v)} placeholder="28" type="number" error={fieldErrors.age} />
+                <SelectField label="Gender" id="gender" value={form.gender} onChange={(v) => update("gender", v)} error={fieldErrors.gender} options={[
+                  { value: "", label: "Select…" },
                   { value: "male", label: "Male" },
                   { value: "female", label: "Female" },
                   { value: "non-binary", label: "Non-binary" },
                   { value: "other", label: "Other" },
+                  { value: "prefer-not-to-say", label: "Prefer not to say" },
                 ]} />
-                <InputField label="Location" id="location" value={form.location} onChange={(v) => update("location", v)} placeholder="New York, USA" />
+                <InputField label="Location" id="location" value={form.location} onChange={(v) => update("location", v)} placeholder="New York, USA" error={fieldErrors.location} />
               </>
             )}
 
             {step === 1 && (
               <>
-                <TextAreaField label="How would you describe your personality?" id="personality_description" value={form.personality_description} onChange={(v) => update("personality_description", v)} placeholder="I'm an outgoing, curious person who loves learning new things…" rows={4} />
-                <SelectField label="Are you more introverted or extroverted?" id="introvert_extrovert" value={form.introvert_extrovert} onChange={(v) => update("introvert_extrovert", v)} options={[
+                <TextAreaField label="How would you describe your personality?" id="personality_description" value={form.personality_description} onChange={(v) => update("personality_description", v)} placeholder="I'm an outgoing, curious person who loves learning new things…" rows={4} error={fieldErrors.personality_description} />
+                <SelectField label="Are you more introverted or extroverted?" id="introvert_extrovert" value={form.introvert_extrovert} onChange={(v) => update("introvert_extrovert", v)} error={fieldErrors.introvert_extrovert} options={[
                   { value: "", label: "Select…" },
                   { value: "introvert", label: "Introvert" },
                   { value: "extrovert", label: "Extrovert" },
                   { value: "ambivert", label: "Ambivert (mix of both)" },
                 ]} />
-                <TextAreaField label="What are your core values?" id="core_values" value={form.core_values} onChange={(v) => update("core_values", v)} placeholder="Honesty, creativity, family, growth…" rows={3} />
+                <TextAreaField label="What are your core values?" id="core_values" value={form.core_values} onChange={(v) => update("core_values", v)} placeholder="Honesty, creativity, family, growth…" rows={3} error={fieldErrors.core_values} />
               </>
             )}
 
             {step === 2 && (
               <>
-                <SelectField label="Do you prefer formal or casual communication?" id="formality" value={form.formality} onChange={(v) => update("formality", v)} options={[
+                <SelectField label="Do you prefer formal or casual communication?" id="formality" value={form.formality} onChange={(v) => update("formality", v)} error={fieldErrors.formality} options={[
                   { value: "", label: "Select…" },
                   { value: "formal", label: "Formal" },
                   { value: "casual", label: "Casual" },
@@ -372,24 +474,24 @@ export default function OnboardingPage() {
                     </button>
                   </div>
                 </div>
-                <TextAreaField label="How do you typically respond to emotional situations?" id="emotional_response_style" value={form.emotional_response_style} onChange={(v) => update("emotional_response_style", v)} placeholder="I tend to stay calm and think things through, but I'm empathetic…" rows={3} />
+                <TextAreaField label="How do you typically respond to emotional situations?" id="emotional_response_style" value={form.emotional_response_style} onChange={(v) => update("emotional_response_style", v)} placeholder="I tend to stay calm and think things through, but I'm empathetic…" rows={3} error={fieldErrors.emotional_response_style} />
               </>
             )}
 
             {step === 3 && (
               <>
-                <TextAreaField label="Key life events or stories" id="key_life_events" value={form.key_life_events} onChange={(v) => update("key_life_events", v)} placeholder="Share any important moments, stories, or experiences that shaped who you are…" rows={5} />
-                <TextAreaField label="Career background" id="career_background" value={form.career_background} onChange={(v) => update("career_background", v)} placeholder="Software engineer for 10 years, started a startup…" rows={3} />
-                <TextAreaField label="Education" id="education" value={form.education} onChange={(v) => update("education", v)} placeholder="BS in Computer Science from MIT…" rows={2} />
+                <TextAreaField label="Key life events or stories" id="key_life_events" value={form.key_life_events} onChange={(v) => update("key_life_events", v)} placeholder="Share any important moments, stories, or experiences that shaped who you are…" rows={5} error={fieldErrors.key_life_events} />
+                <TextAreaField label="Career background" id="career_background" value={form.career_background} onChange={(v) => update("career_background", v)} placeholder="Software engineer for 10 years, started a startup…" rows={3} error={fieldErrors.career_background} />
+                <TextAreaField label="Education" id="education" value={form.education} onChange={(v) => update("education", v)} placeholder="BS in Computer Science from MIT…" rows={2} error={fieldErrors.education} />
               </>
             )}
 
             {step === 4 && (
               <>
-                <TextAreaField label="Views on money" id="views_money" value={form.views_money} onChange={(v) => update("views_money", v)} placeholder="Money is a tool, not a goal…" rows={2} />
-                <TextAreaField label="Views on relationships" id="views_relationships" value={form.views_relationships} onChange={(v) => update("views_relationships", v)} placeholder="I believe in deep, authentic connections…" rows={2} />
-                <TextAreaField label="Views on success" id="views_success" value={form.views_success} onChange={(v) => update("views_success", v)} placeholder="Success is about fulfillment, not just achievements…" rows={2} />
-                <TextAreaField label="Philosophical or religious beliefs (optional)" id="philosophical_beliefs" value={form.philosophical_beliefs} onChange={(v) => update("philosophical_beliefs", v)} placeholder="I'm a stoic at heart…" rows={2} />
+                <TextAreaField label="Views on money" id="views_money" value={form.views_money} onChange={(v) => update("views_money", v)} placeholder="Money is a tool, not a goal…" rows={2} error={fieldErrors.views_money} />
+                <TextAreaField label="Views on relationships" id="views_relationships" value={form.views_relationships} onChange={(v) => update("views_relationships", v)} placeholder="I believe in deep, authentic connections…" rows={2} error={fieldErrors.views_relationships} />
+                <TextAreaField label="Views on success" id="views_success" value={form.views_success} onChange={(v) => update("views_success", v)} placeholder="Success is about fulfillment, not just achievements…" rows={2} error={fieldErrors.views_success} />
+                <TextAreaField label="Philosophical or religious beliefs" id="philosophical_beliefs" value={form.philosophical_beliefs} onChange={(v) => update("philosophical_beliefs", v)} placeholder="I'm a stoic at heart…" rows={2} error={fieldErrors.philosophical_beliefs} />
               </>
             )}
 
@@ -463,7 +565,7 @@ export default function OnboardingPage() {
             {step === 6 && (
               <div className="space-y-4">
                 <div className="mb-2">
-                  <SelectField label="Voice energy" id="energy" value={form.energy} onChange={(v) => update("energy", v)} options={[
+                  <SelectField label="Voice energy" id="energy" value={form.energy} onChange={(v) => update("energy", v)} error={fieldErrors.energy} options={[
                     { value: "", label: "Select…" },
                     { value: "calm", label: "Calm & composed" },
                     { value: "energetic", label: "Energetic & enthusiastic" },
@@ -472,7 +574,7 @@ export default function OnboardingPage() {
                   ]} />
                 </div>
                 <div className="mb-4">
-                  <SelectField label="Response length preference" id="response_length" value={form.response_length} onChange={(v) => update("response_length", v)} options={[
+                  <SelectField label="Response length preference" id="response_length" value={form.response_length} onChange={(v) => update("response_length", v)} error={fieldErrors.response_length} options={[
                     { value: "", label: "Select…" },
                     { value: "short", label: "Short & concise" },
                     { value: "medium", label: "Medium — balanced" },
@@ -509,7 +611,7 @@ export default function OnboardingPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              onClick={() => { setFieldErrors({}); setStep((s) => Math.max(0, s - 1)); }}
               disabled={step === 0}
             >
               <ArrowLeft className="h-4 w-4" />
@@ -519,8 +621,8 @@ export default function OnboardingPage() {
             {isLastStep ? (
               <Button
                 size="sm"
-                onClick={handleSubmit}
-                disabled={isSubmitting || !canContinue()}
+                onClick={() => { if (tryAdvance()) handleSubmit(); }}
+                disabled={isSubmitting}
               >
                 {isSubmitting ? (
                   <>
@@ -537,8 +639,7 @@ export default function OnboardingPage() {
             ) : (
               <Button
                 size="sm"
-                onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-                disabled={!canContinue()}
+                onClick={() => { if (tryAdvance()) setStep((s) => Math.min(STEPS.length - 1, s + 1)); }}
               >
                 Next
                 <ArrowRight className="h-4 w-4" />

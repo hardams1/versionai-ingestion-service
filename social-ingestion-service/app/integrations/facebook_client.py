@@ -12,7 +12,11 @@ from app.models.schemas import NormalizedContent
 
 logger = logging.getLogger(__name__)
 
+FB_AUTH_URL = "https://www.facebook.com/v19.0/dialog/oauth"
+FB_TOKEN_URL = "https://graph.facebook.com/v19.0/oauth/access_token"
 GRAPH_API = "https://graph.facebook.com/v19.0"
+
+SCOPES = "public_profile,email,user_posts"
 
 
 class FacebookClient(BasePlatformClient):
@@ -20,8 +24,56 @@ class FacebookClient(BasePlatformClient):
 
     def __init__(self) -> None:
         s = get_settings()
-        self._app_id = s.facebook_app_id
-        self._app_secret = s.facebook_app_secret
+        self._app_id = s.facebook_app_id or ""
+        self._app_secret = s.facebook_app_secret or ""
+
+    def has_oauth_keys(self) -> bool:
+        return bool(self._app_id and self._app_secret)
+
+    def get_oauth_url(
+        self, state: str, redirect_uri: str, code_challenge: Optional[str] = None
+    ) -> str:
+        params = {
+            "client_id": self._app_id,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "scope": SCOPES,
+            "response_type": "code",
+        }
+        return f"{FB_AUTH_URL}?{urlencode(params)}"
+
+    async def exchange_code(
+        self, code: str, redirect_uri: str, code_verifier: Optional[str] = None
+    ) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                FB_TOKEN_URL,
+                params={
+                    "client_id": self._app_id,
+                    "client_secret": self._app_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                },
+            )
+            resp.raise_for_status()
+            token_data = resp.json()
+
+            me_resp = await client.get(
+                f"{GRAPH_API}/me",
+                params={
+                    "fields": "id,name,email",
+                    "access_token": token_data["access_token"],
+                },
+            )
+            me_data = me_resp.json()
+
+            return {
+                "access_token": token_data["access_token"],
+                "refresh_token": None,
+                "username": me_data.get("name", ""),
+                "user_id": me_data.get("id", ""),
+                "expires_in": token_data.get("expires_in"),
+            }
 
     async def fetch_user_content(
         self,
@@ -40,7 +92,7 @@ class FacebookClient(BasePlatformClient):
                 }
                 resp = await client.get(f"{GRAPH_API}/me/posts", params=params)
                 if resp.status_code != 200:
-                    logger.warning("Facebook API returned %d", resp.status_code)
+                    logger.warning("Facebook API %d", resp.status_code)
                     return items
 
                 for post in resp.json().get("data", []):
@@ -73,26 +125,3 @@ class FacebookClient(BasePlatformClient):
                 return resp.status_code == 200
         except Exception:
             return False
-
-    def get_oauth_url(self, state: str, redirect_uri: str) -> str:
-        params = {
-            "client_id": self._app_id or "",
-            "redirect_uri": redirect_uri,
-            "state": state,
-            "scope": "public_profile,user_posts",
-        }
-        return f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}"
-
-    async def exchange_code(self, code: str, redirect_uri: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GRAPH_API}/oauth/access_token",
-                params={
-                    "client_id": self._app_id or "",
-                    "client_secret": self._app_secret or "",
-                    "redirect_uri": redirect_uri,
-                    "code": code,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     snapchat_client_id: Optional[str] = None
     snapchat_client_secret: Optional[str] = None
 
-    oauth_redirect_base_url: str = "http://localhost:3000/settings/social/callback"
+    oauth_redirect_base_url: str = "http://localhost:3000/oauth/callback"
 
     # Sibling services
     processing_service_url: str = "http://localhost:8001"

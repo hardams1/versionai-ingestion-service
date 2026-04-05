@@ -12,9 +12,11 @@ from app.models.schemas import NormalizedContent
 
 logger = logging.getLogger(__name__)
 
+TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
+TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
 TWITTER_API = "https://api.twitter.com/2"
-TWITTER_AUTH = "https://twitter.com/i/oauth2/authorize"
-TWITTER_TOKEN = "https://api.twitter.com/2/oauth2/token"
+
+SCOPES = "tweet.read users.read follows.read offline.access"
 
 
 class TwitterClient(BasePlatformClient):
@@ -22,8 +24,57 @@ class TwitterClient(BasePlatformClient):
 
     def __init__(self) -> None:
         s = get_settings()
-        self._client_id = s.twitter_client_id
-        self._client_secret = s.twitter_client_secret
+        self._client_id = s.twitter_client_id or ""
+        self._client_secret = s.twitter_client_secret or ""
+
+    def has_oauth_keys(self) -> bool:
+        return bool(self._client_id)
+
+    def get_oauth_url(
+        self, state: str, redirect_uri: str, code_challenge: Optional[str] = None
+    ) -> str:
+        params = {
+            "response_type": "code",
+            "client_id": self._client_id,
+            "redirect_uri": redirect_uri,
+            "scope": SCOPES,
+            "state": state,
+            "code_challenge_method": "S256",
+            "code_challenge": code_challenge or state,
+        }
+        return f"{TWITTER_AUTH_URL}?{urlencode(params)}"
+
+    async def exchange_code(
+        self, code: str, redirect_uri: str, code_verifier: Optional[str] = None
+    ) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                TWITTER_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "client_id": self._client_id,
+                    "code_verifier": code_verifier or "",
+                },
+                auth=(self._client_id, self._client_secret),
+            )
+            resp.raise_for_status()
+            token_data = resp.json()
+
+            me_resp = await client.get(
+                f"{TWITTER_API}/users/me",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+            me_data = me_resp.json().get("data", {})
+
+            return {
+                "access_token": token_data["access_token"],
+                "refresh_token": token_data.get("refresh_token"),
+                "username": me_data.get("username", ""),
+                "user_id": me_data.get("id", ""),
+                "expires_in": token_data.get("expires_in"),
+            }
 
     async def fetch_user_content(
         self,
@@ -50,11 +101,10 @@ class TwitterClient(BasePlatformClient):
                     params=params,
                 )
                 if resp.status_code != 200:
-                    logger.warning("Twitter API returned %d: %s", resp.status_code, resp.text[:200])
+                    logger.warning("Twitter API %d: %s", resp.status_code, resp.text[:200])
                     return items
 
-                data = resp.json().get("data", [])
-                for tweet in data:
+                for tweet in resp.json().get("data", []):
                     metrics = tweet.get("public_metrics", {})
                     entities = tweet.get("entities", {})
                     hashtags = [h["tag"] for h in entities.get("hashtags", [])]
@@ -90,31 +140,3 @@ class TwitterClient(BasePlatformClient):
                 return resp.status_code == 200
         except Exception:
             return False
-
-    def get_oauth_url(self, state: str, redirect_uri: str) -> str:
-        params = {
-            "response_type": "code",
-            "client_id": self._client_id or "",
-            "redirect_uri": redirect_uri,
-            "scope": "tweet.read users.read offline.access",
-            "state": state,
-            "code_challenge": "challenge",
-            "code_challenge_method": "plain",
-        }
-        return f"{TWITTER_AUTH}?{urlencode(params)}"
-
-    async def exchange_code(self, code: str, redirect_uri: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                TWITTER_TOKEN,
-                data={
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "client_id": self._client_id or "",
-                    "redirect_uri": redirect_uri,
-                    "code_verifier": "challenge",
-                },
-                auth=(self._client_id or "", self._client_secret or ""),
-            )
-            resp.raise_for_status()
-            return resp.json()

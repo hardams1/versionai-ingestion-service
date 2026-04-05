@@ -169,7 +169,13 @@ class FaceCalibrationService:
         logger.info("Cleared calibration data for user=%s", user_id)
 
     async def _validate_video(self, video_data: bytes) -> dict:
-        """Use ffprobe to validate the video and extract metadata."""
+        """Use ffprobe to validate the video and extract metadata.
+
+        Browser-recorded WebM files often lack a duration in the container
+        header. We try format.duration first, then stream.duration, and
+        finally fall back to decoding the whole file with ffmpeg to get
+        the real duration.
+        """
         ffprobe_bin = shutil.which("ffprobe")
         if not ffprobe_bin:
             logger.warning("ffprobe not found — skipping detailed video validation")
@@ -184,8 +190,7 @@ class FaceCalibrationService:
             proc = await loop.run_in_executor(None, lambda: subprocess.run(
                 [
                     ffprobe_bin, "-v", "error",
-                    "-select_streams", "v:0",
-                    "-show_entries", "format=duration:stream=width,height,codec_name",
+                    "-show_entries", "format=duration:stream=duration,width,height,codec_name",
                     "-of", "json",
                     tmp_path,
                 ],
@@ -200,8 +205,15 @@ class FaceCalibrationService:
             streams = data.get("streams", [{}])
             fmt = data.get("format", {})
 
+            duration = self._parse_duration(fmt.get("duration"))
+            if duration <= 0 and streams:
+                duration = self._parse_duration(streams[0].get("duration"))
+
+            if duration <= 0:
+                duration = await self._get_duration_by_decode(tmp_path, loop)
+
             info = {
-                "duration": float(fmt.get("duration", 0)),
+                "duration": duration,
                 "width": streams[0].get("width", 0) if streams else 0,
                 "height": streams[0].get("height", 0) if streams else 0,
                 "codec": streams[0].get("codec_name", "unknown") if streams else "unknown",
@@ -210,6 +222,39 @@ class FaceCalibrationService:
             return info
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+    @staticmethod
+    def _parse_duration(value) -> float:
+        """Safely parse a duration value that might be None, 'N/A', or a number."""
+        if value is None:
+            return 0.0
+        try:
+            d = float(value)
+            return d if d > 0 else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    async def _get_duration_by_decode(self, file_path: str, loop) -> float:
+        """Decode the entire file with ffmpeg to determine the real duration.
+        This is the reliable fallback for browser-generated WebM that lacks
+        duration metadata in the container header."""
+        import re
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            return 0.0
+
+        proc = await loop.run_in_executor(None, lambda: subprocess.run(
+            [ffmpeg_bin, "-i", file_path, "-f", "null", "-"],
+            capture_output=True, timeout=60,
+        ))
+        stderr = proc.stderr.decode(errors="replace")
+        match = re.search(r"time=(\d+):(\d+):(\d+)\.(\d+)", stderr)
+        if match:
+            h, m, s, cs = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4))
+            duration = h * 3600 + m * 60 + s + cs / 100.0
+            logger.info("Duration from ffmpeg decode fallback: %.1fs", duration)
+            return duration
+        return 0.0
 
     async def _extract_and_store_thumbnail(self, video_data: bytes, user_id: str) -> Optional[str]:
         """Extract a single frame from the calibration video as a thumbnail."""

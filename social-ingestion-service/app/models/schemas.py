@@ -8,15 +8,6 @@ Platform = Literal["twitter", "facebook", "instagram", "tiktok", "snapchat"]
 ContentType = Literal["post", "comment", "like", "reply", "share", "story"]
 
 
-class ConnectRequest(BaseModel):
-    platform: Platform
-    access_token: str = Field(..., min_length=1)
-    refresh_token: Optional[str] = None
-    platform_user_id: Optional[str] = None
-    platform_username: Optional[str] = None
-    scopes: Optional[str] = None
-
-
 class ConnectResponse(BaseModel):
     id: str
     platform: str
@@ -24,16 +15,6 @@ class ConnectResponse(BaseModel):
     status: str
     connected_at: str
 
-
-class OAuthInitResponse(BaseModel):
-    authorization_url: str
-    state: str
-
-
-class OAuthCallbackRequest(BaseModel):
-    platform: Platform
-    code: str
-    state: str
 
 
 class AccountStatusResponse(BaseModel):
