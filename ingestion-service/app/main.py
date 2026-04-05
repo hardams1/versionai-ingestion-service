@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.config import get_settings
+from app.db import init_db
 from app.dependencies import get_storage_service
 from app.middleware.logging import RequestLoggingMiddleware
 from app.models.schemas import ErrorDetail, HealthResponse
@@ -30,6 +31,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s v%s [%s]", settings.app_name, settings.app_version, settings.environment)
     storage = get_storage_service()
     await storage.ensure_bucket_exists()
+    await init_db()
     yield
     logger.info("Shutting down %s", settings.app_name)
 

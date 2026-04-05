@@ -70,6 +70,11 @@ export async function uploadFile(
 
     xhr.open("POST", `${INGESTION_URL}/api/v1/upload/`);
     if (API_KEY) xhr.setRequestHeader("X-API-Key", API_KEY);
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("versionai_token")
+        : null;
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.send(formData);
   });
 }

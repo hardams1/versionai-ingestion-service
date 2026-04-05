@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
+  FolderOpen,
   Globe,
   Lock,
   Pencil,
@@ -16,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/auth-provider";
+import { MyContentLibrary } from "@/components/content/my-content-library";
 import { NavHeader } from "@/components/layout/nav-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +56,7 @@ const ACCESS_BADGES: Record<
   },
 };
 
-type Tab = "followers" | "following" | "requests";
+type Tab = "content" | "followers" | "following" | "requests";
 
 export default function MyProfilePage() {
   const router = useRouter();
@@ -62,7 +64,7 @@ export default function MyProfilePage() {
 
   const [profile, setProfile] = useState<SocialProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("followers");
+  const [tab, setTab] = useState<Tab>("content");
   const [followers, setFollowers] = useState<FollowerItem[]>([]);
   const [following, setFollowing] = useState<FollowerItem[]>([]);
   const [requests, setRequests] = useState<FollowRequestItem[]>([]);
@@ -190,7 +192,8 @@ export default function MyProfilePage() {
   const badge = ACCESS_BADGES[profile.ai_access_level] ?? ACCESS_BADGES.public;
   const BadgeIcon = badge.icon;
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
+  const tabs: { key: Tab; label: string; count: number; icon?: typeof FolderOpen }[] = [
+    { key: "content", label: "Content", count: 0, icon: FolderOpen },
     { key: "followers", label: "Followers", count: profile.followers_count },
     { key: "following", label: "Following", count: profile.following_count },
     { key: "requests", label: "Requests", count: requests.length },
@@ -199,7 +202,7 @@ export default function MyProfilePage() {
   return (
     <>
       <NavHeader />
-      <main className="mx-auto max-w-3xl px-6 py-8">
+      <main className="mx-auto max-w-4xl px-6 py-8">
         {/* Profile header */}
         <div className="flex items-start gap-6">
           <div className="h-24 w-24 shrink-0 rounded-full bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground overflow-hidden">
@@ -284,27 +287,38 @@ export default function MyProfilePage() {
         {/* Tabs */}
         <div className="mt-10">
           <div className="flex border-b">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                  tab === t.key
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-                {t.count > 0 && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            ))}
+            {tabs.map((t) => {
+              const TabIcon = t.icon;
+              return (
+                <button
+                  key={t.key}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
+                    tab === t.key
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setTab(t.key)}
+                >
+                  {TabIcon && <TabIcon className="h-3.5 w-3.5" />}
+                  {t.label}
+                  {t.count > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           <div className="mt-4 space-y-1">
+            {/* Content tab */}
+            {tab === "content" && (
+              <div className="py-2">
+                <MyContentLibrary />
+              </div>
+            )}
+
             {/* Followers tab */}
             {tab === "followers" &&
               (followers.length === 0 ? (

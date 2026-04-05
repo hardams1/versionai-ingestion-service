@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     api_key: str | None = None  # optional API-key gating
     cors_origins: list[str] = ["*"]
 
+    # --- JWT (shared with auth-service) ---
+    jwt_secret_key: str = "change-me-to-a-long-random-string"
+    jwt_algorithm: str = "HS256"
+
+    # --- Content index DB ---
+    content_db_path: str = "./content_index.db"
+
+    # --- Thumbnail generation ---
+    thumbnails_dir: str = "./thumbnails"
+
 
 @lru_cache
 def get_settings() -> Settings:

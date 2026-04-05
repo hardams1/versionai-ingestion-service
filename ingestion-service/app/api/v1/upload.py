@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile, File
 
 from app.config import Settings, get_settings
+from app.core.security import get_optional_user
+from app.db import get_db, insert_record
 from app.dependencies import (
     get_file_validator,
     get_metadata_service,
@@ -19,12 +24,47 @@ from app.models.schemas import QueueMessage, UploadBatchResponse, UploadResponse
 from app.services.metadata import MetadataService
 from app.services.queue import SQSPublisher
 from app.services.storage import BaseStorageService
+from app.services.thumbnail import generate_thumbnail
 from app.services.validation import FileValidator
 from app.utils.exceptions import QueuePublishError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/upload", tags=["upload"], dependencies=[Depends(verify_api_key)])
+
+
+async def _save_to_index(
+    ingestion_id: str,
+    user_id: str,
+    filename: str,
+    category: str,
+    s3_key: str,
+    size_bytes: int,
+    mime_type: str,
+    settings: Settings,
+) -> None:
+    """Persist upload metadata to the content index DB and generate thumbnails."""
+    db = await get_db()
+    try:
+        thumb_path: str | None = None
+        if category == "video":
+            storage_root = Path(settings.local_storage_path)
+            source = storage_root / s3_key
+            thumb_path = await generate_thumbnail(str(source), s3_key)
+
+        await insert_record(
+            db,
+            ingestion_id=ingestion_id,
+            user_id=user_id,
+            filename=filename,
+            category=category,
+            s3_key=s3_key,
+            size_bytes=size_bytes,
+            mime_type=mime_type,
+            thumbnail_path=thumb_path,
+        )
+    finally:
+        await db.close()
 
 
 async def _ingest_single_file(
@@ -75,6 +115,14 @@ async def _ingest_single_file(
 
     logger.info("Ingestion %s queued for file '%s'", ingestion_id, filename)
 
+    effective_user = user_id or "default"
+    asyncio.create_task(
+        _save_to_index(
+            ingestion_id, effective_user, filename, category.value,
+            s3_key, len(file_bytes), mime_type, settings,
+        )
+    )
+
     return UploadResponse(
         ingestion_id=ingestion_id,
         filename=filename,
@@ -97,13 +145,15 @@ async def _ingest_single_file(
 async def upload_file(
     file: UploadFile = File(..., description="The file to upload"),
     user_id: str | None = Form(default=None, description="Owner user ID for tenant isolation"),
+    current_user: Optional[dict] = Depends(get_optional_user),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
     storage: BaseStorageService = Depends(get_storage_service),
     queue: SQSPublisher = Depends(get_queue_publisher),
     meta_svc: MetadataService = Depends(get_metadata_service),
 ) -> UploadResponse:
-    return await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=user_id)
+    effective_user = (current_user or {}).get("user_id") or user_id
+    return await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=effective_user)
 
 
 @router.post(
@@ -115,16 +165,18 @@ async def upload_file(
 async def upload_batch(
     files: list[UploadFile] = File(..., description="Files to upload"),
     user_id: str | None = Form(default=None, description="Owner user ID for tenant isolation"),
+    current_user: Optional[dict] = Depends(get_optional_user),
     settings: Settings = Depends(get_settings),
     validator: FileValidator = Depends(get_file_validator),
     storage: BaseStorageService = Depends(get_storage_service),
     queue: SQSPublisher = Depends(get_queue_publisher),
     meta_svc: MetadataService = Depends(get_metadata_service),
 ) -> UploadBatchResponse:
+    effective_user = (current_user or {}).get("user_id") or user_id
     results: list[UploadResponse] = []
 
     for file in files:
-        result = await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=user_id)
+        result = await _ingest_single_file(file, settings, validator, storage, queue, meta_svc, user_id=effective_user)
         results.append(result)
 
     logger.info("Batch upload complete: %d files queued", len(results))
