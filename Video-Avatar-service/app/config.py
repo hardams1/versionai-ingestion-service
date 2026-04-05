@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     port: int = 8004
 
     # --- Renderer provider ---
-    # "auto" tries D-ID → SyncLabs → FFmpeg based on which API keys are set
-    renderer_provider: Literal["synclabs", "d_id", "mock", "auto"] = "auto"
+    # "auto" tries HeyGen → D-ID → SyncLabs → FFmpeg based on which API keys are set
+    renderer_provider: Literal["synclabs", "d_id", "heygen", "mock", "auto"] = "auto"
 
     # Sync Labs (lip-sync video generation)
     synclabs_api_key: str | None = None
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # D-ID (talking-head video generation)
     d_id_api_key: str | None = None
     d_id_api_url: str = "https://api.d-id.com"
+
+    # HeyGen (studio-quality avatar from video source)
+    heygen_api_key: str | None = None
+    heygen_api_url: str = "https://api.heygen.com"
 
     # --- Video output ---
     default_video_format: Literal["mp4", "webm"] = "mp4"
@@ -45,6 +49,18 @@ class Settings(BaseSettings):
     avatar_profile_storage: Literal["s3", "local"] = "local"
     avatar_profiles_dir: str = "./avatar_profiles"
     avatar_images_dir: str = "./avatar_images"
+
+    # --- Face calibration ---
+    calibration_videos_dir: str = "./calibration_videos"
+    face_models_dir: str = "./face_models"
+    max_calibration_video_size_bytes: int = Field(
+        default=200 * 1024 * 1024,
+        description="200 MB max calibration video",
+    )
+    max_calibration_video_duration_seconds: float = Field(
+        default=120.0,
+        description="Max calibration video length in seconds",
+    )
 
     # S3 avatar storage
     aws_region: str = "us-east-1"

@@ -140,3 +140,26 @@ class MissingImageInputError(VideoAvatarError):
             status_code=422,
             code="MISSING_IMAGE_INPUT",
         )
+
+
+class CalibrationVideoTooLargeError(VideoAvatarError):
+    def __init__(self, size: int, max_size: int) -> None:
+        super().__init__(
+            detail=f"Calibration video size {size} bytes exceeds maximum {max_size} bytes",
+            status_code=422,
+            code="CALIBRATION_VIDEO_TOO_LARGE",
+        )
+
+
+class CalibrationVideoInvalidError(VideoAvatarError):
+    def __init__(self, detail: str = "Invalid calibration video") -> None:
+        super().__init__(detail=detail, status_code=422, code="CALIBRATION_VIDEO_INVALID")
+
+
+class FaceScanNotReadyError(VideoAvatarError):
+    def __init__(self, user_id: str, status: str) -> None:
+        super().__init__(
+            detail=f"Face scan for user '{user_id}' is not ready (current status: {status})",
+            status_code=409,
+            code="FACE_SCAN_NOT_READY",
+        )

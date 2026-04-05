@@ -12,6 +12,7 @@ from app.services.avatar_profile import (
     LocalAvatarProfileStore,
     S3AvatarProfileStore,
 )
+from app.services.face_calibration import FaceCalibrationService
 from app.services.image_validator import ImageValidator
 from app.services.ingestion_client import IngestionClient
 from app.services.renderer import BaseRenderer, create_renderer
@@ -60,3 +61,11 @@ def get_avatar_profile_service() -> AvatarProfileService:
 @lru_cache
 def get_ingestion_client() -> IngestionClient:
     return IngestionClient(get_settings())
+
+
+@lru_cache
+def get_face_calibration_service() -> FaceCalibrationService:
+    return FaceCalibrationService(
+        get_avatar_profile_store(),
+        get_settings(),
+    )

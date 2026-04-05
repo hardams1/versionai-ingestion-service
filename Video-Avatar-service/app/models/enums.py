@@ -6,6 +6,7 @@ from enum import Enum
 class RendererProvider(str, Enum):
     SYNCLABS = "synclabs"
     D_ID = "d_id"
+    HEYGEN = "heygen"
     MOCK = "mock"
 
 
@@ -35,3 +36,11 @@ class ImageSourceType(str, Enum):
     UPLOAD = "upload"
     INGESTION = "ingestion"
     URL = "url"
+
+
+class FaceScanStatus(str, Enum):
+    NONE = "none"
+    UPLOADING = "uploading"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"

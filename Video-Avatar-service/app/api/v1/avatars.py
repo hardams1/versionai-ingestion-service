@@ -36,6 +36,8 @@ def _profile_to_response(p) -> AvatarProfileResponse:
         image_height=p.image_height,
         image_format=p.image_format,
         image_source=p.image_source.value if hasattr(p.image_source, "value") else p.image_source,
+        face_scan_status=p.face_scan_status.value if hasattr(p.face_scan_status, "value") else str(p.face_scan_status),
+        has_calibration_video=p.has_calibration_video,
     )
 
 

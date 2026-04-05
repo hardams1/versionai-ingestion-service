@@ -12,6 +12,8 @@ import {
   Mic,
   Monitor,
   Save,
+  ScanFace,
+  Share2,
   Sparkles,
   Video,
   X,
@@ -40,6 +42,8 @@ import {
   updateSocialProfile,
   type SocialProfile,
 } from "@/lib/social-api";
+import { FaceCalibrationRecorder } from "@/components/avatar/face-calibration-recorder";
+import { SocialConnections } from "@/components/social/social-connections";
 import { VoiceRecorder } from "@/components/voice/voice-recorder";
 import {
   SUPPORTED_LANGUAGES,
@@ -433,6 +437,41 @@ export default function SettingsPage() {
             )}
             Save Privacy Settings
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Social Media Connections */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Share2 className="h-5 w-5" />
+            Social Media Connections
+          </CardTitle>
+          <CardDescription>
+            Connect your social accounts to import your content, writing style, and interests.
+            This data improves your AI&apos;s personality and knowledge.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SocialConnections />
+        </CardContent>
+      </Card>
+
+      {/* Face Calibration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ScanFace className="h-5 w-5" />
+            Face Calibration
+          </CardTitle>
+          <CardDescription>
+            Record a short face scan video so the AI avatar uses your real facial expressions,
+            head movements, and lip-sync. This transforms video responses from a static photo
+            to a human-realistic talking head.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FaceCalibrationRecorder />
         </CardContent>
       </Card>
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 from app.models.enums import (
     AudioInputType,
+    FaceScanStatus,
     GenerationStatus,
     ImageFormat,
     ImageSourceType,
@@ -72,8 +74,28 @@ class AvatarProfile(BaseModel):
         default=ImageSourceType.UPLOAD,
         description="Where the source image came from",
     )
+    calibration_video_path: str | None = Field(
+        default=None,
+        description="Path to face calibration video (webcam capture with head movements + expressions)",
+    )
+    face_model_path: str | None = Field(
+        default=None,
+        description="Path to reconstructed 3D face model / Gaussian splat data",
+    )
+    face_scan_status: FaceScanStatus = Field(
+        default=FaceScanStatus.NONE,
+        description="Current status of the face scan pipeline",
+    )
+    blendshape_profile_path: str | None = Field(
+        default=None,
+        description="Path to user-specific blendshape / lip-sync calibration data",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def has_calibration_video(self) -> bool:
+        return self.calibration_video_path is not None and self.face_scan_status == FaceScanStatus.READY
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +113,8 @@ class AvatarProfileResponse(BaseModel):
     image_height: int
     image_format: str
     image_source: str
+    face_scan_status: str = "none"
+    has_calibration_video: bool = False
 
 
 class AvatarProfileCreateRequest(BaseModel):
@@ -112,6 +136,39 @@ class AvatarFromIngestionRequest(BaseModel):
     provider: RendererProvider = RendererProvider.MOCK
     display_name: str | None = None
     expression_baseline: str = Field(default="neutral")
+
+
+# ---------------------------------------------------------------------------
+# Face calibration schemas
+# ---------------------------------------------------------------------------
+
+class CalibrationUploadResponse(BaseModel):
+    user_id: str
+    video_path: str
+    face_scan_status: FaceScanStatus
+    message: str
+
+
+class CalibrationStatusResponse(BaseModel):
+    user_id: str
+    face_scan_status: FaceScanStatus
+    calibration_video_path: str | None = None
+    face_model_path: str | None = None
+    blendshape_profile_path: str | None = None
+    has_calibration_video: bool = False
+
+
+class CalibrationPrompt(BaseModel):
+    instruction: str
+    duration_seconds: int
+    icon: str = "face"
+
+
+class CalibrationSequenceResponse(BaseModel):
+    prompts: List[CalibrationPrompt]
+    total_duration_seconds: int
+    min_video_duration_seconds: int = 30
+    max_video_size_mb: int = 200
 
 
 # ---------------------------------------------------------------------------
